@@ -38,7 +38,7 @@ dependencies: [
 
 Copy the files from `ObjC/NWAsyncSocketObjC/` into your Xcode project. Add the `include/` directory to your Header Search Paths.
 
-> **Drop-in replacement:** The Objective-C class is named `GCDAsyncSocket` with a `GCDAsyncSocketDelegate` protocol, so you can replace CocoaAsyncSocket's GCDAsyncSocket by swapping the imported header from `"GCDAsyncSocket.h"` (CocoaAsyncSocket) to `"GCDAsyncSocket.h"` (this library). The old `NWAsyncSocketObjC` / `NWAsyncSocketObjCDelegate` names are still available as backward-compatible aliases.
+> **Drop-in replacement:** The Objective-C class is named `GCDAsyncSocket` with a `GCDAsyncSocketDelegate` protocol, so you can replace CocoaAsyncSocket's GCDAsyncSocket by swapping the imported header from `"GCDAsyncSocket.h"` (CocoaAsyncSocket) to `"GCDAsyncSocket.h"` (this library).
 
 ## Usage
 
@@ -197,8 +197,6 @@ NWAsyncSocket/
 │   ├── include/                           # Public headers
 │   │   ├── GCDAsyncSocket.h               # Main class (drop-in replacement)
 │   │   ├── GCDAsyncSocketDelegate.h       # Delegate protocol
-│   │   ├── NWAsyncSocketObjC.h            # Backward-compat alias header
-│   │   ├── NWAsyncSocketObjCDelegate.h    # Backward-compat alias header
 │   │   ├── NWStreamBuffer.h
 │   │   ├── NWSSEParser.h
 │   │   └── NWReadRequest.h
