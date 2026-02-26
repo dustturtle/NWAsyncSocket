@@ -208,4 +208,105 @@ final class StreamBufferTests: XCTestCase {
     func testEmptyData() {
         XCTAssertEqual(StreamBuffer.utf8SafeByteCount(Data()), 0)
     }
+
+    // MARK: - Additional edge cases
+
+    func testMultipleAppendsBeforeRead() {
+        let buf = StreamBuffer()
+        buf.append(Data([1, 2]))
+        buf.append(Data([3, 4]))
+        buf.append(Data([5, 6]))
+        XCTAssertEqual(buf.count, 6)
+        let result = buf.readData(toLength: 6)
+        XCTAssertEqual(result, Data([1, 2, 3, 4, 5, 6]))
+    }
+
+    func testReadToLengthZero() {
+        let buf = StreamBuffer()
+        buf.append(Data([1, 2, 3]))
+        let result = buf.readData(toLength: 0)
+        XCTAssertEqual(result, Data())
+        XCTAssertEqual(buf.count, 3)
+    }
+
+    func testReadToDelimiterAtStart() {
+        let buf = StreamBuffer()
+        buf.append("\nhello".data(using: .utf8)!)
+        let delimiter = "\n".data(using: .utf8)!
+        let result = buf.readData(toDelimiter: delimiter)
+        XCTAssertEqual(String(data: result!, encoding: .utf8), "\n")
+        XCTAssertEqual(String(data: buf.readAllData(), encoding: .utf8), "hello")
+    }
+
+    func testReadToDelimiterMultipleOccurrences() {
+        let buf = StreamBuffer()
+        buf.append("a\nb\nc\n".data(using: .utf8)!)
+        let delimiter = "\n".data(using: .utf8)!
+
+        let r1 = buf.readData(toDelimiter: delimiter)
+        XCTAssertEqual(String(data: r1!, encoding: .utf8), "a\n")
+        let r2 = buf.readData(toDelimiter: delimiter)
+        XCTAssertEqual(String(data: r2!, encoding: .utf8), "b\n")
+        let r3 = buf.readData(toDelimiter: delimiter)
+        XCTAssertEqual(String(data: r3!, encoding: .utf8), "c\n")
+        XCTAssertTrue(buf.isEmpty)
+    }
+
+    func testUTF8SafeWithOnlyContinuationBytes() {
+        // All continuation bytes with no leading byte
+        let data = Data([0x80, 0x80, 0x80])
+        XCTAssertEqual(StreamBuffer.utf8SafeByteCount(data), 0)
+    }
+
+    func testUTF8SafeWithTwoByteCharComplete() {
+        // é = C3 A9 in UTF-8 (2-byte char)
+        let data = Data([0x48, 0x69, 0xC3, 0xA9]) // "Hié"
+        XCTAssertEqual(StreamBuffer.utf8SafeByteCount(data), 4)
+    }
+
+    func testUTF8SafeWithTwoByteCharIncomplete() {
+        // First byte of 2-byte char only
+        let data = Data([0x48, 0x69, 0xC3]) // "Hi" + partial é
+        XCTAssertEqual(StreamBuffer.utf8SafeByteCount(data), 2)
+    }
+
+    func testReadUTF8SafeStringEmptyBuffer() {
+        let buf = StreamBuffer()
+        XCTAssertNil(buf.readUTF8SafeString())
+    }
+
+    func testReadUTF8SafeStringAllIncomplete() {
+        let buf = StreamBuffer()
+        // Only continuation bytes - no valid UTF-8
+        buf.append(Data([0x80, 0x80]))
+        XCTAssertNil(buf.readUTF8SafeString())
+        XCTAssertEqual(buf.count, 2) // Data preserved
+    }
+
+    func testLargeDataAppendAndRead() {
+        let buf = StreamBuffer()
+        let largeData = Data(repeating: 0x41, count: 100000) // 100KB of 'A'
+        buf.append(largeData)
+        XCTAssertEqual(buf.count, 100000)
+        let result = buf.readData(toLength: 100000)
+        XCTAssertEqual(result?.count, 100000)
+        XCTAssertTrue(buf.isEmpty)
+    }
+
+    func testMixedReadOperations() {
+        let buf = StreamBuffer()
+        buf.append("HEADER\nBODY_12345END".data(using: .utf8)!)
+
+        // First: read to delimiter
+        let header = buf.readData(toDelimiter: "\n".data(using: .utf8)!)
+        XCTAssertEqual(String(data: header!, encoding: .utf8), "HEADER\n")
+
+        // Then: read to length
+        let body = buf.readData(toLength: 9)
+        XCTAssertEqual(String(data: body!, encoding: .utf8), "BODY_1234")
+
+        // Then: read remaining
+        let rest = buf.readAllData()
+        XCTAssertEqual(String(data: rest, encoding: .utf8), "5END")
+    }
 }
