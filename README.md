@@ -4,7 +4,7 @@ A TCP socket networking library for iOS/macOS built on **Network.framework**, wi
 
 Available in **two versions**:
 - 🟠 **Swift version** — `Sources/NWAsyncSocket/`
-- 🔵 **Objective-C version** — `ObjC/NWAsyncSocketObjC/` (uses Network.framework's C API: `nw_connection_t`)
+- 🔵 **Objective-C version** — `ObjC/NWAsyncSocketObjC/` (uses Network.framework's C API: `nw_connection_t`). Class is named **GCDAsyncSocket** for drop-in replacement of CocoaAsyncSocket.
 
 ## Features
 
@@ -37,6 +37,8 @@ dependencies: [
 ### Objective-C
 
 Copy the files from `ObjC/NWAsyncSocketObjC/` into your Xcode project. Add the `include/` directory to your Header Search Paths.
+
+> **Drop-in replacement:** The Objective-C class is named `GCDAsyncSocket` with a `GCDAsyncSocketDelegate` protocol, so you can replace CocoaAsyncSocket's GCDAsyncSocket by swapping the imported header from `"GCDAsyncSocket.h"` (CocoaAsyncSocket) to `"GCDAsyncSocket.h"` (this library).
 
 ## Usage
 
@@ -103,36 +105,36 @@ socket.readData(toData: "\r\n".data(using: .utf8)!, withTimeout: 30, tag: 3)
 ### Objective-C Version
 
 ```objc
-#import "NWAsyncSocketObjC.h"
+#import "GCDAsyncSocket.h"
 
-@interface MyController () <NWAsyncSocketObjCDelegate>
-@property (nonatomic, strong) NWAsyncSocketObjC *socket;
+@interface MyController () <GCDAsyncSocketDelegate>
+@property (nonatomic, strong) GCDAsyncSocket *socket;
 @end
 
 @implementation MyController
 
 - (void)connect {
-    self.socket = [[NWAsyncSocketObjC alloc] initWithDelegate:self
+    self.socket = [[GCDAsyncSocket alloc] initWithDelegate:self
                                                 delegateQueue:dispatch_get_main_queue()];
     NSError *err = nil;
     [self.socket connectToHost:@"api.example.com" onPort:8080 error:&err];
 }
 
-- (void)socket:(NWAsyncSocketObjC *)sock didConnectToHost:(NSString *)host port:(uint16_t)port {
+- (void)socket:(GCDAsyncSocket *)sock didConnectToHost:(NSString *)host port:(uint16_t)port {
     NSLog(@"Connected to %@:%u", host, port);
     [sock readDataWithTimeout:-1 tag:0];
 }
 
-- (void)socket:(NWAsyncSocketObjC *)sock didReadData:(NSData *)data withTag:(long)tag {
+- (void)socket:(GCDAsyncSocket *)sock didReadData:(NSData *)data withTag:(long)tag {
     NSLog(@"Received %lu bytes", (unsigned long)data.length);
     [sock readDataWithTimeout:-1 tag:0];
 }
 
-- (void)socket:(NWAsyncSocketObjC *)sock didWriteDataWithTag:(long)tag {
+- (void)socket:(GCDAsyncSocket *)sock didWriteDataWithTag:(long)tag {
     NSLog(@"Write complete for tag %ld", tag);
 }
 
-- (void)socketDidDisconnect:(NWAsyncSocketObjC *)sock withError:(NSError *)error {
+- (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)error {
     NSLog(@"Disconnected: %@", error.localizedDescription);
 }
 
@@ -142,13 +144,13 @@ socket.readData(toData: "\r\n".data(using: .utf8)!, withTimeout: 30, tag: 3)
 #### SSE Streaming (LLM) — Objective-C
 
 ```objc
-NWAsyncSocketObjC *socket = [[NWAsyncSocketObjC alloc] initWithDelegate:self
-                                                          delegateQueue:dispatch_get_main_queue()];
+GCDAsyncSocket *socket = [[GCDAsyncSocket alloc] initWithDelegate:self
+                                                     delegateQueue:dispatch_get_main_queue()];
 [socket enableSSEParsing];
 [socket connectToHost:@"llm-server.example.com" onPort:8080 error:nil];
 
 // Optional delegate method:
-- (void)socket:(NWAsyncSocketObjC *)sock didReceiveSSEEvent:(NWSSEEvent *)event {
+- (void)socket:(GCDAsyncSocket *)sock didReceiveSSEEvent:(NWSSEEvent *)event {
     NSLog(@"Event: %@ Data: %@", event.event, event.data);
 }
 ```
@@ -160,7 +162,7 @@ NWAsyncSocketObjC *socket = [[NWAsyncSocketObjC alloc] initWithDelegate:self
 │                   Your App                       │
 │              (ViewController)                    │
 ├─────────────────────────────────────────────────┤
-│           NWAsyncSocket(ObjC)                    │
+│           NWAsyncSocket / GCDAsyncSocket          │
 │  ┌──────────────┐  ┌────────────┐  ┌──────────┐│
 │  │  Read Queue   │  │   Buffer   │  │SSE Parser││
 │  │ (ReadRequest) │  │(StreamBuf) │  │          ││
@@ -193,12 +195,12 @@ NWAsyncSocket/
 │   └── ReadRequest.swift                  # Read request queue model
 ├── ObjC/NWAsyncSocketObjC/                # Objective-C version
 │   ├── include/                           # Public headers
-│   │   ├── NWAsyncSocketObjC.h
-│   │   ├── NWAsyncSocketObjCDelegate.h
+│   │   ├── GCDAsyncSocket.h               # Main class (drop-in replacement)
+│   │   ├── GCDAsyncSocketDelegate.h       # Delegate protocol
 │   │   ├── NWStreamBuffer.h
 │   │   ├── NWSSEParser.h
 │   │   └── NWReadRequest.h
-│   ├── NWAsyncSocketObjC.m                # Main socket (nw_connection_t C API)
+│   ├── GCDAsyncSocket.m                   # Main socket (nw_connection_t C API)
 │   ├── NWStreamBuffer.m
 │   ├── NWSSEParser.m
 │   └── NWReadRequest.m
@@ -231,7 +233,7 @@ Add the ObjC source and test files to an Xcode project and run the XCTest test s
 
 ## API Compatibility with GCDAsyncSocket
 
-| GCDAsyncSocket | NWAsyncSocket (Swift) | NWAsyncSocketObjC |
+| GCDAsyncSocket (CocoaAsyncSocket) | NWAsyncSocket (Swift) | GCDAsyncSocket (this library) |
 |---|---|---|
 | `initWithDelegate:delegateQueue:` | `init(delegate:delegateQueue:)` | `initWithDelegate:delegateQueue:` |
 | `connectToHost:onPort:error:` | `connect(toHost:onPort:)` | `connectToHost:onPort:error:` |

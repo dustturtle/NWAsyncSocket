@@ -1,9 +1,10 @@
 //
-//  NWAsyncSocketObjC.h
-//  NWAsyncSocketObjC
+//  GCDAsyncSocket.h
+//  GCDAsyncSocket (NWAsyncSocket)
 //
 //  A TCP socket built on top of Network.framework's C API (nw_connection_t)
-//  with an API modeled after GCDAsyncSocket. Includes built-in support for:
+//  with an API designed as a drop-in replacement for GCDAsyncSocket from
+//  CocoaAsyncSocket.  Includes built-in support for:
 //
 //  - Sticky-packet / split-packet handling via an internal NWStreamBuffer
 //  - SSE (Server-Sent Events) parsing for LLM streaming data
@@ -11,37 +12,37 @@
 //  - Read-request queue for ordered, non-blocking reads
 //
 //  Usage:
-//    NWAsyncSocketObjC *socket = [[NWAsyncSocketObjC alloc] initWithDelegate:self
-//                                                             delegateQueue:dispatch_get_main_queue()];
+//    GCDAsyncSocket *socket = [[GCDAsyncSocket alloc] initWithDelegate:self
+//                                                         delegateQueue:dispatch_get_main_queue()];
 //    NSError *err = nil;
 //    [socket connectToHost:@"example.com" onPort:8080 error:&err];
 //    [socket readDataWithTimeout:-1 tag:0];
 //
 
 #import <Foundation/Foundation.h>
-#import "NWAsyncSocketObjCDelegate.h"
+#import "GCDAsyncSocketDelegate.h"
 #import "NWStreamBuffer.h"
 #import "NWSSEParser.h"
 #import "NWReadRequest.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Error domain for NWAsyncSocketObjC errors.
-extern NSString * const NWAsyncSocketObjCErrorDomain;
+/// Error domain for GCDAsyncSocket errors.
+extern NSString * const GCDAsyncSocketErrorDomain;
 
-typedef NS_ENUM(NSInteger, NWAsyncSocketObjCErrorCode) {
-    NWAsyncSocketObjCErrorNotConnected = 1,
-    NWAsyncSocketObjCErrorAlreadyConnected,
-    NWAsyncSocketObjCErrorConnectionFailed,
-    NWAsyncSocketObjCErrorReadTimeout,
-    NWAsyncSocketObjCErrorWriteTimeout,
-    NWAsyncSocketObjCErrorInvalidParameter,
+typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
+    GCDAsyncSocketErrorNotConnected = 1,
+    GCDAsyncSocketErrorAlreadyConnected,
+    GCDAsyncSocketErrorConnectionFailed,
+    GCDAsyncSocketErrorReadTimeout,
+    GCDAsyncSocketErrorWriteTimeout,
+    GCDAsyncSocketErrorInvalidParameter,
 };
 
-@interface NWAsyncSocketObjC : NSObject
+@interface GCDAsyncSocket : NSObject
 
 /// The delegate that receives socket events.
-@property (nonatomic, weak, nullable) id<NWAsyncSocketObjCDelegate> delegate;
+@property (nonatomic, weak, nullable) id<GCDAsyncSocketDelegate> delegate;
 
 /// The dispatch queue on which delegate methods are called.
 @property (nonatomic, strong, readonly) dispatch_queue_t delegateQueue;
@@ -61,7 +62,7 @@ typedef NS_ENUM(NSInteger, NWAsyncSocketObjCErrorCode) {
 // MARK: - Init
 
 /// Create a new socket.
-- (instancetype)initWithDelegate:(nullable id<NWAsyncSocketObjCDelegate>)delegate
+- (instancetype)initWithDelegate:(nullable id<GCDAsyncSocketDelegate>)delegate
                    delegateQueue:(dispatch_queue_t)delegateQueue;
 
 // MARK: - Configuration
