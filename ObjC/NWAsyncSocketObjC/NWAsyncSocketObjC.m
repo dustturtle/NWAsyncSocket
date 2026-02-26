@@ -350,9 +350,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
             // Convert dispatch_data_t to NSData
             const void *buffer;
             size_t size;
-            dispatch_data_t contiguous = dispatch_data_create_map(content, &buffer, &size);
+            __unused dispatch_data_t contiguous = dispatch_data_create_map(content, &buffer, &size);
             NSData *data = [NSData dataWithBytes:buffer length:size];
-            (void)contiguous; // Keep reference alive
 
             [strongSelf.buffer appendData:data];
 
@@ -368,15 +367,20 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
                 }
             }
 
-            // Streaming text mode
+            // Streaming text mode: extract UTF-8 safe string from the
+            // newly received data without consuming the buffer.
             if (strongSelf.streamingTextEnabled) {
-                NSString *str = [strongSelf.buffer readUTF8SafeString];
-                if (str) {
-                    dispatch_async(strongSelf.delegateQueue, ^{
-                        if ([strongSelf.delegate respondsToSelector:@selector(socket:didReceiveString:)]) {
-                            [strongSelf.delegate socket:strongSelf didReceiveString:str];
-                        }
-                    });
+                NSUInteger safeCount = [NWStreamBuffer utf8SafeByteCountForData:data];
+                if (safeCount > 0) {
+                    NSData *safeData = [data subdataWithRange:NSMakeRange(0, safeCount)];
+                    NSString *str = [[NSString alloc] initWithData:safeData encoding:NSUTF8StringEncoding];
+                    if (str) {
+                        dispatch_async(strongSelf.delegateQueue, ^{
+                            if ([strongSelf.delegate respondsToSelector:@selector(socket:didReceiveString:)]) {
+                                [strongSelf.delegate socket:strongSelf didReceiveString:str];
+                            }
+                        });
+                    }
                 }
             }
 
