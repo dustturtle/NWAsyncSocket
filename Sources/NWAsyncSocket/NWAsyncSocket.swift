@@ -143,12 +143,6 @@ public final class NWAsyncSocket {
             parameters = .tcp
         }
 
-        // Optimize TCP for streaming
-        if let tcpOptions = parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
-            // Use default settings – Network.framework handles Nagle, etc.
-            _ = tcpOptions
-        }
-
         let nwPort = NWEndpoint.Port(rawValue: port)!
         let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: parameters)
 
@@ -352,13 +346,12 @@ public final class NWAsyncSocket {
                     }
                 }
 
-                // Streaming text mode
+                // Streaming text mode: extract UTF-8 safe string from the
+                // newly received data without consuming the buffer, so
+                // queued reads can still access the raw bytes.
                 if self.streamingTextEnabled {
-                    if let str = self.buffer.readUTF8SafeString() {
-                        // Re-add to buffer since readUTF8SafeString consumed it
-                        // but we also need it for queued reads.
-                        // Actually, streaming text is a separate path – we deliver
-                        // the string AND keep the original data for queued reads.
+                    let safeCount = StreamBuffer.utf8SafeByteCount(data)
+                    if safeCount > 0, let str = String(data: data.prefix(safeCount), encoding: .utf8) {
                         self.delegateQueue.async {
                             self.delegate?.socket(self, didReceiveString: str)
                         }
