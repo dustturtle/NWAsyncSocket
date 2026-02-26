@@ -1,12 +1,13 @@
 //
-//  NWAsyncSocketObjC.m
-//  NWAsyncSocketObjC
+//  GCDAsyncSocket.m
+//  GCDAsyncSocket (NWAsyncSocket)
 //
 //  TCP socket using Network.framework's C API (nw_connection_t).
+//  Drop-in replacement for GCDAsyncSocket from CocoaAsyncSocket.
 //  Only compiles on Apple platforms (iOS 13+, macOS 10.15+).
 //
 
-#import "NWAsyncSocketObjC.h"
+#import "GCDAsyncSocket.h"
 
 #if __has_include(<Network/Network.h>)
 #define NW_FRAMEWORK_AVAILABLE 1
@@ -15,9 +16,9 @@
 #define NW_FRAMEWORK_AVAILABLE 0
 #endif
 
-NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
+NSString * const GCDAsyncSocketErrorDomain = @"GCDAsyncSocketErrorDomain";
 
-@interface NWAsyncSocketObjC ()
+@interface GCDAsyncSocket ()
 @property (nonatomic, readwrite, copy, nullable) NSString *connectedHost;
 @property (nonatomic, readwrite) uint16_t connectedPort;
 @property (nonatomic, readwrite) BOOL isConnected;
@@ -39,17 +40,17 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
 @property (nonatomic, assign) BOOL tlsEnabled;
 @end
 
-@implementation NWAsyncSocketObjC
+@implementation GCDAsyncSocket
 
 #pragma mark - Init
 
-- (instancetype)initWithDelegate:(id<NWAsyncSocketObjCDelegate>)delegate
+- (instancetype)initWithDelegate:(id<GCDAsyncSocketDelegate>)delegate
                    delegateQueue:(dispatch_queue_t)delegateQueue {
     self = [super init];
     if (self) {
         _delegate = delegate;
         _delegateQueue = delegateQueue;
-        _socketQueue = dispatch_queue_create("com.nwasyncsocket.objc.socketQueue",
+        _socketQueue = dispatch_queue_create("com.gcdasyncsocket.nw.socketQueue",
                                              DISPATCH_QUEUE_SERIAL);
         _buffer = [[NWStreamBuffer alloc] init];
         _readQueue = [NSMutableArray array];
@@ -101,8 +102,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
 
     if (self.isConnected) {
         if (errPtr) {
-            *errPtr = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                          code:NWAsyncSocketObjCErrorAlreadyConnected
+            *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                          code:GCDAsyncSocketErrorAlreadyConnected
                                       userInfo:@{NSLocalizedDescriptionKey: @"Socket is already connected."}];
         }
         return NO;
@@ -149,8 +150,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
                        self.socketQueue, ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (strongSelf && !strongSelf.isConnected) {
-                NSError *timeoutError = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                                           code:NWAsyncSocketObjCErrorConnectionFailed
+                NSError *timeoutError = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                                           code:GCDAsyncSocketErrorConnectionFailed
                                                        userInfo:@{NSLocalizedDescriptionKey: @"Connection timed out."}];
                 [strongSelf disconnectWithError:timeoutError];
             }
@@ -160,8 +161,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
     return YES;
 #else
     if (errPtr) {
-        *errPtr = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                      code:NWAsyncSocketObjCErrorConnectionFailed
+        *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                      code:GCDAsyncSocketErrorConnectionFailed
                                   userInfo:@{NSLocalizedDescriptionKey: @"Network.framework is not available on this platform."}];
     }
     return NO;
@@ -231,8 +232,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
 
         if (!strongSelf.connection || !strongSelf.isConnected) {
             dispatch_async(strongSelf.delegateQueue, ^{
-                NSError *err = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                                   code:NWAsyncSocketObjCErrorNotConnected
+                NSError *err = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                                   code:GCDAsyncSocketErrorNotConnected
                                                userInfo:@{NSLocalizedDescriptionKey: @"Socket is not connected."}];
                 [strongSelf.delegate socketDidDisconnect:strongSelf withError:err];
             });
@@ -252,8 +253,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
             timeoutBlock = dispatch_block_create(0, ^{
                 if (!writeCompleted) {
                     timedOut = YES;
-                    NSError *err = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                                       code:NWAsyncSocketObjCErrorWriteTimeout
+                    NSError *err = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                                       code:GCDAsyncSocketErrorWriteTimeout
                                                    userInfo:@{NSLocalizedDescriptionKey: @"Write timed out."}];
                     [strongSelf disconnectWithError:err];
                 }
@@ -275,8 +276,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
             if (!sself) return;
 
             if (error) {
-                NSError *nsError = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                                       code:NWAsyncSocketObjCErrorConnectionFailed
+                NSError *nsError = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                                       code:GCDAsyncSocketErrorConnectionFailed
                                                    userInfo:@{NSLocalizedDescriptionKey: @"Write failed."}];
                 [sself disconnectWithError:nsError];
             } else {
@@ -308,8 +309,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
         case nw_connection_state_failed: {
             NSError *nsError = nil;
             if (error) {
-                nsError = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                              code:NWAsyncSocketObjCErrorConnectionFailed
+                nsError = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                              code:GCDAsyncSocketErrorConnectionFailed
                                           userInfo:@{NSLocalizedDescriptionKey: @"Connection failed."}];
             }
             [self disconnectInternalWithError:nsError];
@@ -394,8 +395,8 @@ NSString * const NWAsyncSocketObjCErrorDomain = @"NWAsyncSocketObjCErrorDomain";
         }
 
         if (error) {
-            NSError *nsError = [NSError errorWithDomain:NWAsyncSocketObjCErrorDomain
-                                                   code:NWAsyncSocketObjCErrorConnectionFailed
+            NSError *nsError = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                                   code:GCDAsyncSocketErrorConnectionFailed
                                                userInfo:@{NSLocalizedDescriptionKey: @"Read error."}];
             [strongSelf disconnectInternalWithError:nsError];
             return;
