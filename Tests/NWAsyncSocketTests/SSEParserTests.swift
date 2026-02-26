@@ -252,4 +252,123 @@ final class SSEParserTests: XCTestCase {
         let events3 = parser.parse(input3)
         XCTAssertEqual(events3[0].data, " two spaces") // Only first space stripped
     }
+
+    // MARK: - Additional edge cases
+
+    func testMultipleEventsWithDifferentTypes() {
+        let parser = SSEParser()
+        let input = "event: start\ndata: begin\n\nevent: progress\ndata: 50%\n\nevent: end\ndata: done\n\n"
+        let events = parser.parse(input)
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(events[0].event, "start")
+        XCTAssertEqual(events[0].data, "begin")
+        XCTAssertEqual(events[1].event, "progress")
+        XCTAssertEqual(events[1].data, "50%")
+        XCTAssertEqual(events[2].event, "end")
+        XCTAssertEqual(events[2].data, "done")
+    }
+
+    func testEventTypeResetsToDefault() {
+        let parser = SSEParser()
+        // First event has custom type
+        let events1 = parser.parse("event: custom\ndata: first\n\n")
+        XCTAssertEqual(events1[0].event, "custom")
+        // Second event should default back to "message"
+        let events2 = parser.parse("data: second\n\n")
+        XCTAssertEqual(events2[0].event, "message")
+    }
+
+    func testLastEventIdPersists() {
+        let parser = SSEParser()
+        _ = parser.parse("id: 1\ndata: first\n\n")
+        XCTAssertEqual(parser.lastEventId, "1")
+        // Event without id should not change lastEventId
+        _ = parser.parse("data: second\n\n")
+        XCTAssertEqual(parser.lastEventId, "1")
+        // New id should update
+        _ = parser.parse("id: 2\ndata: third\n\n")
+        XCTAssertEqual(parser.lastEventId, "2")
+    }
+
+    func testConsecutiveEmptyLines() {
+        let parser = SSEParser()
+        let events = parser.parse("data: test\n\n\n\n\n")
+        // Only one event dispatched, subsequent empty lines without data are ignored
+        XCTAssertEqual(events.count, 1)
+    }
+
+    func testCommentOnly() {
+        let parser = SSEParser()
+        let events = parser.parse(": just a comment\n\n")
+        XCTAssertEqual(events.count, 0)
+    }
+
+    func testMixedCRLFAndLF() {
+        let parser = SSEParser()
+        let input = "data: mixed\r\n\n"
+        let events = parser.parse(input)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].data, "mixed")
+    }
+
+    func testVeryLongDataLine() {
+        let parser = SSEParser()
+        let longString = String(repeating: "x", count: 100000)
+        let input = "data: \(longString)\n\n"
+        let events = parser.parse(input)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].data, longString)
+    }
+
+    func testByteSplitAcrossMultipleChunks() {
+        let parser = SSEParser()
+        var allEvents: [SSEEvent] = []
+        // Split "data: hello\n\n" into individual characters
+        for char in "data: hello\n\n" {
+            allEvents.append(contentsOf: parser.parse(String(char)))
+        }
+        XCTAssertEqual(allEvents.count, 1)
+        XCTAssertEqual(allEvents[0].data, "hello")
+    }
+
+    func testEmptyStringInput() {
+        let parser = SSEParser()
+        let events = parser.parse("")
+        XCTAssertEqual(events.count, 0)
+    }
+
+    func testSSEEventEquatable() {
+        let event1 = SSEEvent(event: "message", data: "hello")
+        let event2 = SSEEvent(event: "message", data: "hello")
+        let event3 = SSEEvent(event: "other", data: "hello")
+        XCTAssertEqual(event1, event2)
+        XCTAssertNotEqual(event1, event3)
+    }
+
+    func testMultipleDataFieldsWithEventType() {
+        let parser = SSEParser()
+        let input = "event: chat\ndata: line1\ndata: line2\nid: 99\n\n"
+        let events = parser.parse(input)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].event, "chat")
+        XCTAssertEqual(events[0].data, "line1\nline2")
+        XCTAssertEqual(events[0].id, "99")
+    }
+
+    func testColonInDataValue() {
+        let parser = SSEParser()
+        let input = "data: key: value: extra\n\n"
+        let events = parser.parse(input)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].data, "key: value: extra")
+    }
+
+    func testJSONDataPayload() {
+        let parser = SSEParser()
+        let json = "{\"model\":\"gpt-4\",\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"index\":0}]}"
+        let input = "data: \(json)\n\n"
+        let events = parser.parse(input)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].data, json)
+    }
 }
