@@ -193,6 +193,8 @@ NWAsyncSocket/
 │   ├── StreamBuffer.swift                 # Byte buffer with UTF-8 safety
 │   ├── SSEParser.swift                    # SSE event parser
 │   └── ReadRequest.swift                  # Read request queue model
+├── Examples/SwiftDemo/                    # Swift interactive demo
+│   └── main.swift                         # Run: swift run SwiftDemo
 ├── ObjC/NWAsyncSocketObjC/                # Objective-C version
 │   ├── include/                           # Public headers
 │   │   ├── GCDAsyncSocket.h               # Main class (drop-in replacement)
@@ -204,6 +206,8 @@ NWAsyncSocket/
 │   ├── NWStreamBuffer.m
 │   ├── NWSSEParser.m
 │   └── NWReadRequest.m
+├── ObjC/ObjCDemo/                         # Objective-C interactive demo
+│   └── main.m                             # Build with clang (see Demo section)
 ├── ObjC/NWAsyncSocketObjCTests/           # ObjC XCTest cases
 │   ├── NWStreamBufferTests.m
 │   ├── NWSSEParserTests.m
@@ -230,6 +234,50 @@ swift test
 ### Objective-C Tests (run in Xcode on macOS)
 
 Add the ObjC source and test files to an Xcode project and run the XCTest test suite.
+
+## Demo
+
+Interactive demos are provided for both Swift and Objective-C to help you verify all core components.
+
+### Swift Demo
+
+Run the interactive Swift demo via SPM:
+
+```bash
+swift run SwiftDemo
+```
+
+The demo menu lets you test each component individually or run all at once:
+
+1. **StreamBuffer** — sticky-packet / split-packet handling, delimiter-based reads
+2. **SSEParser** — single/multi/split SSE events, LLM streaming simulation, ID/retry fields
+3. **UTF-8 Safety** — multi-byte character boundary detection, incomplete sequence handling
+4. **ReadRequest** — all read-request queue types with simulated queue processing
+5. **NWAsyncSocket** — connection setup and delegate usage pattern (Network.framework only)
+
+### Objective-C Demo
+
+Build the ObjC demo on macOS:
+
+```bash
+clang -framework Foundation \
+      -I ObjC/NWAsyncSocketObjC/include \
+      ObjC/NWAsyncSocketObjC/NWStreamBuffer.m \
+      ObjC/NWAsyncSocketObjC/NWSSEParser.m \
+      ObjC/NWAsyncSocketObjC/NWReadRequest.m \
+      ObjC/NWAsyncSocketObjC/GCDAsyncSocket.m \
+      ObjC/ObjCDemo/main.m \
+      -o ObjCDemo
+./ObjCDemo
+```
+
+The ObjC demo provides the same interactive menu and covers:
+
+1. **NWStreamBuffer** — sticky-packet / split-packet handling, delimiter-based reads
+2. **NWSSEParser** — single/multi/split SSE events, LLM streaming simulation, ID/retry fields
+3. **UTF-8 Safety** — multi-byte boundary detection with `utf8SafeByteCountForData:`
+4. **NWReadRequest** — all read-request queue types with simulated queue processing
+5. **GCDAsyncSocket** — connection setup, delegate implementation, and usage pattern
 
 ## API Compatibility with GCDAsyncSocket
 

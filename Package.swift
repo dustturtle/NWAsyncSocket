@@ -16,11 +16,20 @@ let package = Package(
             name: "NWAsyncSocket",
             targets: ["NWAsyncSocket"]
         ),
+        .executable(
+            name: "SwiftDemo",
+            targets: ["SwiftDemo"]
+        ),
     ],
     targets: [
         .target(
             name: "NWAsyncSocket",
             path: "Sources/NWAsyncSocket"
+        ),
+        .executableTarget(
+            name: "SwiftDemo",
+            dependencies: ["NWAsyncSocket"],
+            path: "Examples/SwiftDemo"
         ),
         .testTarget(
             name: "NWAsyncSocketTests",
