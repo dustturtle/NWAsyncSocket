@@ -23,6 +23,26 @@ Available in **two versions**:
 - Swift 5.9+ (for Swift version)
 - Xcode 15+ (for Objective-C version)
 
+### Why iOS 13+ instead of iOS 12?
+
+Although `Network.framework` was introduced in iOS 12 (WWDC 2018), this library requires **iOS 13+** for the following reasons:
+
+| Aspect | iOS 12 | iOS 13+ |
+|--------|--------|---------|
+| Network.framework availability | ✅ Available | ✅ Available |
+| Stability & bug fixes | ❌ Known issues with `NWConnection` callbacks and memory leaks | ✅ Major fixes shipped |
+| Continuous read loop reliability | ⚠️ Edge-case bugs in `NWConnection.receive()` under high-frequency reads | ✅ Stable |
+| Swift runtime | ❌ Must be embedded in app bundle | ✅ Built into the OS |
+
+**Key details:**
+
+1. **Network.framework maturity** — Apple significantly improved `NWConnection` reliability in iOS 13, fixing known issues with callback delivery and memory management that existed in the iOS 12 initial release.
+2. **Continuous read loop stability** — This library's core architecture uses a high-frequency continuous read loop (`receive()` → buffer → dequeue → `receive()`). This pattern triggers edge-case bugs on iOS 12 that were resolved in iOS 13.
+3. **Swift runtime built-in** — Starting from iOS 13, the Swift runtime is bundled with the OS, which reduces app binary size and avoids runtime compatibility issues.
+4. **Platform version alignment** — iOS 13 / macOS 10.15 / tvOS 13 / watchOS 6 are all from the same 2019 release cycle, ensuring a consistent and well-tested foundation across all Apple platforms.
+
+> **Note:** If you absolutely need iOS 12 support, changing `.iOS(.v13)` to `.iOS(.v12)` in `Package.swift` will compile, but thorough testing on iOS 12 devices is strongly recommended — especially for long-lived connections and high-frequency read/write scenarios.
+
 ## Installation
 
 ### Swift Package Manager
