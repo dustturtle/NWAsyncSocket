@@ -1,0 +1,55 @@
+name: Demo
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  swift-demo:
+    name: Swift Demo (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Swift Demo
+        run: swift build --target SwiftDemo
+
+      - name: Run Swift Demo (all demos)
+        run: |
+          printf 'a\n\n\n\n\n\nq\n' | swift run SwiftDemo
+
+  objc-demo:
+    name: ObjC Demo (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ObjC Demo
+        run: |
+          clang -framework Foundation -framework Network \
+                -I ObjC/NWAsyncSocketObjC/include \
+                ObjC/NWAsyncSocketObjC/NWStreamBuffer.m \
+                ObjC/NWAsyncSocketObjC/NWSSEParser.m \
+                ObjC/NWAsyncSocketObjC/NWReadRequest.m \
+                ObjC/NWAsyncSocketObjC/GCDAsyncSocket.m \
+                ObjC/ObjCDemo/main.m \
+                -o ObjCDemo
+
+      - name: Run ObjC Demo (all demos)
+        run: |
+          printf 'a\n\n\n\n\n\nq\n' | ./ObjCDemo
+
+  swift-tests:
+    name: Swift Tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Swift tests
+        run: swift test
