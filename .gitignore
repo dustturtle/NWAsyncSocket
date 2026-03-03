@@ -6,4 +6,5 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 *.xcodeproj
+!Examples/iOSDemo/iOSDemo.xcodeproj
 _codeql_detected_source_root
