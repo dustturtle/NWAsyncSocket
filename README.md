@@ -213,7 +213,14 @@ NWAsyncSocket/
 │   ├── StreamBuffer.swift                 # Byte buffer with UTF-8 safety
 │   ├── SSEParser.swift                    # SSE event parser
 │   └── ReadRequest.swift                  # Read request queue model
-├── Examples/SwiftDemo/                    # Swift interactive demo
+├── Examples/iOSDemo/                      # iOS SwiftUI demo app
+│   ├── iOSDemo.xcodeproj                 # Open in Xcode to run
+│   └── iOSDemo/
+│       ├── iOSDemoApp.swift              # App entry point
+│       ├── ContentView.swift             # Main navigation
+│       ├── SocketManager.swift           # Encapsulated socket operations
+│       └── Views/                        # Feature demo views
+├── Examples/SwiftDemo/                    # Swift interactive demo (CLI)
 │   └── main.swift                         # Run: swift run SwiftDemo
 ├── ObjC/NWAsyncSocketObjC/                # Objective-C version
 │   ├── include/                           # Public headers
@@ -257,9 +264,22 @@ Add the ObjC source and test files to an Xcode project and run the XCTest test s
 
 ## Demo
 
-Interactive demos are provided for both Swift and Objective-C to help you verify all core components.
+Interactive demos are provided to help you verify all core components.
 
-### Swift Demo
+### iOS App Demo (Recommended)
+
+A complete SwiftUI iOS app is included at `Examples/iOSDemo/`. Open `Examples/iOSDemo/iOSDemo.xcodeproj` in Xcode and run on a simulator or device.
+
+The app demonstrates all core components with an interactive UI:
+
+- **StreamBuffer** — sticky-packet / split-packet handling, delimiter-based reads
+- **SSE Parser** — single/multi/split SSE events, LLM streaming simulation
+- **UTF-8 Safety** — multi-byte character boundary detection
+- **Socket Connection** — connect/disconnect, send/receive, TLS, SSE, streaming text
+
+The app includes a `SocketManager` class that encapsulates all NWAsyncSocket operations into a clean, SwiftUI-friendly `ObservableObject` with `@Published` properties.
+
+### Swift Demo (CLI)
 
 Run the interactive Swift demo via SPM:
 
