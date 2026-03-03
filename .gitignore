@@ -7,4 +7,5 @@ DerivedData/
 .netrc
 *.xcodeproj
 !Examples/iOSDemo/iOSDemo.xcodeproj
+!Examples/iOSDemoObjC/iOSDemoObjC.xcodeproj
 _codeql_detected_source_root
