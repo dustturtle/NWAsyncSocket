@@ -220,6 +220,14 @@ NWAsyncSocket/
 │       ├── ContentView.swift             # Main navigation
 │       ├── SocketManager.swift           # Encapsulated socket operations
 │       └── Views/                        # Feature demo views
+├── Examples/iOSDemoObjC/                  # iOS UIKit demo app (Objective-C)
+│   ├── iOSDemoObjC.xcodeproj             # Open in Xcode to run
+│   └── iOSDemoObjC/
+│       ├── main.m                        # App entry point
+│       ├── AppDelegate.h/.m              # App delegate
+│       ├── MainViewController.h/.m       # Main navigation
+│       ├── SocketManager.h/.m            # Encapsulated socket operations
+│       └── Views/                        # Feature demo views
 ├── Examples/SwiftDemo/                    # Swift interactive demo (CLI)
 │   └── main.swift                         # Run: swift run SwiftDemo
 ├── ObjC/NWAsyncSocketObjC/                # Objective-C version
@@ -266,7 +274,7 @@ Add the ObjC source and test files to an Xcode project and run the XCTest test s
 
 Interactive demos are provided to help you verify all core components.
 
-### iOS App Demo (Recommended)
+### iOS App Demo — Swift (Recommended)
 
 A complete SwiftUI iOS app is included at `Examples/iOSDemo/`. Open `Examples/iOSDemo/iOSDemo.xcodeproj` in Xcode and run on a simulator or device.
 
@@ -278,6 +286,19 @@ The app demonstrates all core components with an interactive UI:
 - **Socket Connection** — connect/disconnect, send/receive, TLS, SSE, streaming text
 
 The app includes a `SocketManager` class that encapsulates all NWAsyncSocket operations into a clean, SwiftUI-friendly `ObservableObject` with `@Published` properties.
+
+### iOS App Demo — Objective-C
+
+A complete UIKit iOS app is included at `Examples/iOSDemoObjC/`. Open `Examples/iOSDemoObjC/iOSDemoObjC.xcodeproj` in Xcode and run on a simulator or device.
+
+The app demonstrates the same core components as the Swift demo using the Objective-C SDK:
+
+- **StreamBuffer** — sticky-packet / split-packet handling, delimiter-based reads
+- **SSE Parser** — single/multi/split SSE events, LLM streaming simulation
+- **UTF-8 Safety** — multi-byte character boundary detection
+- **Socket Connection** — connect/disconnect, send/receive, TLS, SSE, streaming text
+
+The app includes a `SocketManager` class that encapsulates all GCDAsyncSocket operations with delegate callbacks and `NSNotification`-based UI updates. The ObjC SDK source files are referenced directly from `ObjC/NWAsyncSocketObjC/`.
 
 ### Swift Demo (CLI)
 
@@ -295,9 +316,9 @@ The demo menu lets you test each component individually or run all at once:
 4. **ReadRequest** — all read-request queue types with simulated queue processing
 5. **NWAsyncSocket** — connection setup and delegate usage pattern (Network.framework only)
 
-### Objective-C Demo
+### Objective-C Demo (CLI)
 
-Build the ObjC demo on macOS:
+Build the ObjC CLI demo on macOS:
 
 ```bash
 clang -framework Foundation \
