@@ -40,15 +40,15 @@
 		B200000F /* SocketConnectionDemoViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SocketConnectionDemoViewController.m; sourceTree = "<group>"; };
 		B2000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2000011 /* iOSDemoObjC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSDemoObjC.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B2000012 /* GCDAsyncSocket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = GCDAsyncSocket.m; path = ../../../ObjC/NWAsyncSocketObjC/GCDAsyncSocket.m; sourceTree = "<group>"; };
-		B2000013 /* NWStreamBuffer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NWStreamBuffer.m; path = ../../../ObjC/NWAsyncSocketObjC/NWStreamBuffer.m; sourceTree = "<group>"; };
-		B2000014 /* NWSSEParser.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NWSSEParser.m; path = ../../../ObjC/NWAsyncSocketObjC/NWSSEParser.m; sourceTree = "<group>"; };
-		B2000015 /* NWReadRequest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NWReadRequest.m; path = ../../../ObjC/NWAsyncSocketObjC/NWReadRequest.m; sourceTree = "<group>"; };
-		B2000016 /* GCDAsyncSocket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GCDAsyncSocket.h; path = ../../../ObjC/NWAsyncSocketObjC/include/GCDAsyncSocket.h; sourceTree = "<group>"; };
-		B2000017 /* GCDAsyncSocketDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GCDAsyncSocketDelegate.h; path = ../../../ObjC/NWAsyncSocketObjC/include/GCDAsyncSocketDelegate.h; sourceTree = "<group>"; };
-		B2000018 /* NWStreamBuffer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NWStreamBuffer.h; path = ../../../ObjC/NWAsyncSocketObjC/include/NWStreamBuffer.h; sourceTree = "<group>"; };
-		B2000019 /* NWSSEParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NWSSEParser.h; path = ../../../ObjC/NWAsyncSocketObjC/include/NWSSEParser.h; sourceTree = "<group>"; };
-		B200001A /* NWReadRequest.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NWReadRequest.h; path = ../../../ObjC/NWAsyncSocketObjC/include/NWReadRequest.h; sourceTree = "<group>"; };
+		B2000012 /* GCDAsyncSocket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = GCDAsyncSocket.m; path = ../../ObjC/NWAsyncSocketObjC/GCDAsyncSocket.m; sourceTree = "<group>"; };
+		B2000013 /* NWStreamBuffer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NWStreamBuffer.m; path = ../../ObjC/NWAsyncSocketObjC/NWStreamBuffer.m; sourceTree = "<group>"; };
+		B2000014 /* NWSSEParser.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NWSSEParser.m; path = ../../ObjC/NWAsyncSocketObjC/NWSSEParser.m; sourceTree = "<group>"; };
+		B2000015 /* NWReadRequest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NWReadRequest.m; path = ../../ObjC/NWAsyncSocketObjC/NWReadRequest.m; sourceTree = "<group>"; };
+		B2000016 /* GCDAsyncSocket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GCDAsyncSocket.h; path = ../../ObjC/NWAsyncSocketObjC/include/GCDAsyncSocket.h; sourceTree = "<group>"; };
+		B2000017 /* GCDAsyncSocketDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GCDAsyncSocketDelegate.h; path = ../../ObjC/NWAsyncSocketObjC/include/GCDAsyncSocketDelegate.h; sourceTree = "<group>"; };
+		B2000018 /* NWStreamBuffer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NWStreamBuffer.h; path = ../../ObjC/NWAsyncSocketObjC/include/NWStreamBuffer.h; sourceTree = "<group>"; };
+		B2000019 /* NWSSEParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NWSSEParser.h; path = ../../ObjC/NWAsyncSocketObjC/include/NWSSEParser.h; sourceTree = "<group>"; };
+		B200001A /* NWReadRequest.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NWReadRequest.h; path = ../../ObjC/NWAsyncSocketObjC/include/NWReadRequest.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
