@@ -43,7 +43,7 @@ jobs:
 
       - name: Run ObjC Demo (all demos)
         run: |
-          printf 'a\n\n\n\n\n\nq\n' | ./ObjCDemo
+          printf 'a\n\n\n\n\n\n\nq\n' | ./ObjCDemo
 
   swift-tests:
     name: Swift Tests (macOS)

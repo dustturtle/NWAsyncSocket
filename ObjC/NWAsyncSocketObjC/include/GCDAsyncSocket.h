@@ -53,6 +53,9 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
 /// Whether the socket is currently disconnected.
 @property (atomic, readonly) BOOL isDisconnected;
 
+/// Whether the socket is currently listening for incoming connections (server mode).
+@property (atomic, readonly) BOOL isListening;
+
 /// Whether the socket is using a secure TLS transport.
 @property (atomic, readonly) BOOL isSecure;
 
@@ -109,7 +112,16 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
                 error:(NSError **)errPtr;
 
 /// Compatibility API for CocoaAsyncSocket server mode.
+/// Listen for incoming TCP connections on all interfaces on the given port.
+/// Pass port 0 to let the system assign an available port (query via `localPort`).
 - (BOOL)acceptOnPort:(uint16_t)port error:(NSError **)errPtr;
+
+/// Listen for incoming TCP connections on a specific interface/address and port.
+/// Pass @"localhost" or @"127.0.0.1" to restrict connections to the local machine.
+- (BOOL)acceptOnInterface:(nullable NSString *)interface port:(uint16_t)port error:(NSError **)errPtr;
+
+/// Listen for incoming connections on a Unix Domain Socket at the given file URL.
+- (BOOL)acceptOnUrl:(NSURL *)url error:(NSError **)errPtr;
 
 // MARK: - Disconnect
 
