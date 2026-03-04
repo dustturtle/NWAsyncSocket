@@ -31,6 +31,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(nullable NSError *)error;
 
 @optional
+/// Called when a listening socket accepts a new incoming connection.
+/// The delegate **must** retain `newSocket` (e.g. add it to an array),
+/// otherwise it will be deallocated and the connection will be dropped.
+- (void)socket:(GCDAsyncSocket *)sock didAcceptNewSocket:(GCDAsyncSocket *)newSocket;
+
 /// Called when a complete SSE event has been parsed.
 - (void)socket:(GCDAsyncSocket *)sock didReceiveSSEEvent:(NWSSEEvent *)event;
 
