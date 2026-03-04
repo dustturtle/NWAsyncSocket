@@ -33,8 +33,8 @@ typedef NS_ENUM(NSInteger, SocketSection) {
     self.title = @"Socket Connection";
     self.manager = [[SocketManager alloc] init];
     self.host = @"example.com";
-    self.port = @"443";
-    self.useTLS = YES;
+    self.port = @"exampleport";
+    self.useTLS = NO;
     self.enableSSE = NO;
     self.enableStreaming = YES;
     self.messageToSend = @"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
@@ -82,7 +82,7 @@ typedef NS_ENUM(NSInteger, SocketSection) {
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case SocketSectionSettings:      return 5;
+        case SocketSectionSettings:      return 6;
         case SocketSectionActions:       return 1;
         case SocketSectionSend:          return self.manager.isConnected ? 2 : 0;
         case SocketSectionReceivedText:  return self.manager.receivedText.length > 0 ? 1 : 0;
@@ -147,6 +147,18 @@ typedef NS_ENUM(NSInteger, SocketSection) {
             [field.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
             [field.widthAnchor constraintEqualToConstant:200]
         ]];
+        return cell;
+    }
+
+    if (row == 5) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        cell.textLabel.text = @"Link Status";
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ (%@:%@)",
+                                     self.manager.isConnected ? @"Connected" : @"Disconnected",
+                                     self.host,
+                                     self.port];
+        cell.detailTextLabel.textColor = self.manager.isConnected ? UIColor.systemGreenColor : UIColor.systemRedColor;
         return cell;
     }
 
@@ -284,7 +296,7 @@ typedef NS_ENUM(NSInteger, SocketSection) {
             [self.manager disconnect];
         } else {
             uint16_t portNum = (uint16_t)[self.port integerValue];
-            if (portNum == 0) portNum = 443;
+            if (portNum == 0) portNum = 6100;
             [self.manager connectToHost:self.host
                                    port:portNum
                                  useTLS:self.useTLS

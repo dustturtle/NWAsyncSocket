@@ -14,9 +14,21 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
 @property (nonatomic, strong) NSMutableData *mutableReceivedData;
 @property (nonatomic, strong) NSMutableString *mutableReceivedText;
 @property (nonatomic, strong) NSMutableArray<NWSSEEvent *> *mutableSSEEvents;
+@property (nonatomic, assign) BOOL pendingManualDisconnect;
+@property (nonatomic, copy) NSString *lastConnectHost;
+@property (nonatomic, assign) uint16_t lastConnectPort;
+@property (nonatomic, assign) BOOL lastUseTLS;
+@property (nonatomic, assign) BOOL lastEnableSSE;
+@property (nonatomic, assign) BOOL lastEnableStreaming;
 @end
 
 @implementation SocketManager
+
++ (NSData *)JYHeadData2013 {
+    int64_t i = 2013;
+    NSData *data = [NSData dataWithBytes:&i length:6];
+    return data;
+}
 
 - (instancetype)init {
     self = [super init];
@@ -26,6 +38,12 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
         _mutableReceivedData = [NSMutableData data];
         _mutableReceivedText = [NSMutableString string];
         _mutableSSEEvents = [NSMutableArray array];
+        _pendingManualDisconnect = NO;
+        _lastConnectHost = @"";
+        _lastConnectPort = 0;
+        _lastUseTLS = NO;
+        _lastEnableSSE = NO;
+        _lastEnableStreaming = NO;
     }
     return self;
 }
@@ -48,6 +66,14 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
     return [self.mutableSSEEvents copy];
 }
 
+- (void)runCompatibilityAPIDemoOnSocket:(GCDAsyncSocket *)socket {
+    // Compatibility example (disabled by default):
+    // [socket setDelegate:nil delegateQueue:nil];
+    // [socket readDataToData:[NSData dataWithBytes:"\x48\xF2\x74\xFA" length:4] withTimeout:-1 maxLength:0 tag:0];
+    dispatch_queue_t queue = socket.delegateQueue;
+    (void)queue;
+}
+
 #pragma mark - Connection
 
 - (void)connectToHost:(NSString *)host
@@ -56,10 +82,21 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
             enableSSE:(BOOL)enableSSE
       enableStreaming:(BOOL)enableStreaming {
 
+    self.lastConnectHost = host ?: @"";
+    self.lastConnectPort = port;
+    self.lastUseTLS = useTLS;
+    self.lastEnableSSE = enableSSE;
+    self.lastEnableStreaming = enableStreaming;
+
+    if (self.socket) {
+        [self appendLog:@"↻ Existing connection found, closing it before reconnecting"];
+    }
     [self disconnect];
 
     GCDAsyncSocket *sock = [[GCDAsyncSocket alloc] initWithDelegate:self
-                                                       delegateQueue:dispatch_get_main_queue()];
+                                                       delegateQueue:dispatch_get_main_queue()
+                                                         socketQueue:NULL];
+    sock.IPv4PreferredOverIPv6 = YES;
     if (useTLS) {
         [sock enableTLS];
     }
@@ -72,14 +109,29 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
 
     self.socket = sock;
     [self appendLog:[NSString stringWithFormat:@"Connecting to %@:%u...", host, port]];
+    [self appendLog:[NSString stringWithFormat:@"Socket queue ready (delegateQueue=%p, IPv4PreferredOverIPv6=%@)",
+                     sock.delegateQueue,
+                     sock.IPv4PreferredOverIPv6 ? @"YES" : @"NO"]];
+    [self appendLog:[NSString stringWithFormat:@"Config: TLS=%@, SSE=%@, Streaming=%@",
+                     useTLS ? @"ON" : @"OFF",
+                     enableSSE ? @"ON" : @"OFF",
+                     enableStreaming ? @"ON" : @"OFF"]];
 
     NSError *err = nil;
     if (![sock connectToHost:host onPort:port withTimeout:15 error:&err]) {
-        [self appendLog:[NSString stringWithFormat:@"❌ Connect error: %@", err.localizedDescription]];
+        [self appendLog:[NSString stringWithFormat:@"❌ Connect start failed: %@ (domain=%@ code=%ld)",
+                         err.localizedDescription,
+                         err.domain,
+                         (long)err.code]];
     }
 }
 
 - (void)disconnect {
+    if (!self.socket) {
+        return;
+    }
+    self.pendingManualDisconnect = YES;
+    [self appendLog:@"⏹ Disconnect requested by client"];
     [self.socket disconnect];
     self.socket = nil;
 }
@@ -140,7 +192,18 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
 
 - (void)socket:(GCDAsyncSocket *)sock didConnectToHost:(NSString *)host port:(uint16_t)port {
     _isConnected = YES;
+    self.pendingManualDisconnect = NO;
+
     [self appendLog:[NSString stringWithFormat:@"✅ Connected to %@:%u", host, port]];
+
+    NSData *handshake = [[self class] JYHeadData2013];
+    long handshakeTag = self.readTag;
+    self.readTag++;
+    [sock writeData:handshake withTimeout:30 tag:handshakeTag];
+    [self appendLog:[NSString stringWithFormat:@"🤝 Sent handshake (%lu bytes, tag: %ld)",
+                     (unsigned long)handshake.length,
+                     handshakeTag]];
+
     [sock readDataWithTimeout:-1 tag:self.readTag];
     self.readTag++;
 }
@@ -159,11 +222,35 @@ NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDid
 
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)error {
     _isConnected = NO;
+
+    NSString *target = self.lastConnectHost.length > 0
+        ? [NSString stringWithFormat:@"%@:%u", self.lastConnectHost, self.lastConnectPort]
+        : @"unknown target";
+
     if (error) {
-        [self appendLog:[NSString stringWithFormat:@"🔴 Disconnected: %@", error.localizedDescription]];
+        NSString *reason = error.userInfo[@"GCDAsyncSocketDisconnectReason"];
+        NSString *nwDomain = error.userInfo[@"GCDAsyncSocketNWErrorDomain"];
+        NSNumber *nwCode = error.userInfo[@"GCDAsyncSocketNWErrorCode"];
+
+        NSMutableString *details = [NSMutableString stringWithFormat:@"🔴 Disconnected from %@ with error: %@ (domain=%@ code=%ld)",
+                                 target,
+                                 error.localizedDescription,
+                                 error.domain,
+                                 (long)error.code];
+        if (reason.length > 0) {
+            [details appendFormat:@" | reason=%@", reason];
+        }
+        if (nwDomain.length > 0 && nwCode != nil) {
+            [details appendFormat:@" | nw_error=%@/%ld", nwDomain, (long)nwCode.integerValue];
+        }
+        [self appendLog:details];
+    } else if (self.pendingManualDisconnect) {
+        [self appendLog:[NSString stringWithFormat:@"🟠 Disconnected from %@ (client requested)", target]];
     } else {
-        [self appendLog:@"🔴 Disconnected"];
+        [self appendLog:[NSString stringWithFormat:@"🟡 Disconnected from %@ (peer closed connection)", target]];
     }
+
+    self.pendingManualDisconnect = NO;
 }
 
 - (void)socket:(GCDAsyncSocket *)sock didReceiveSSEEvent:(NWSSEEvent *)event {

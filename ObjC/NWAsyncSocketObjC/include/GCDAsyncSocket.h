@@ -21,9 +21,6 @@
 
 #import <Foundation/Foundation.h>
 #import "GCDAsyncSocketDelegate.h"
-#import "NWStreamBuffer.h"
-#import "NWSSEParser.h"
-#import "NWReadRequest.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -42,28 +39,52 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
 @interface GCDAsyncSocket : NSObject
 
 /// The delegate that receives socket events.
-@property (nonatomic, weak, nullable) id<GCDAsyncSocketDelegate> delegate;
+@property (atomic, weak, nullable) id<GCDAsyncSocketDelegate> delegate;
 
 /// The dispatch queue on which delegate methods are called.
-@property (nonatomic, strong, readonly) dispatch_queue_t delegateQueue;
+@property (atomic, strong, readwrite) dispatch_queue_t delegateQueue;
+
+/// Whether to prefer IPv4 over IPv6 during hostname resolution. Default is YES.
+@property (atomic, assign) BOOL IPv4PreferredOverIPv6;
 
 /// Whether the socket is currently connected.
-@property (nonatomic, readonly) BOOL isConnected;
+@property (atomic, readonly) BOOL isConnected;
+
+/// Whether the socket is currently disconnected.
+@property (atomic, readonly) BOOL isDisconnected;
+
+/// Whether the socket is using a secure TLS transport.
+@property (atomic, readonly) BOOL isSecure;
 
 /// The remote host the socket is connected to.
-@property (nonatomic, readonly, copy, nullable) NSString *connectedHost;
+@property (atomic, readonly, copy, nullable) NSString *connectedHost;
 
 /// The remote port the socket is connected to.
-@property (nonatomic, readonly) uint16_t connectedPort;
+@property (atomic, readonly) uint16_t connectedPort;
+
+/// The local host/address bound to this socket connection.
+@property (atomic, readonly, copy, nullable) NSString *localHost;
+
+/// The local port bound to this socket connection.
+@property (atomic, readonly) uint16_t localPort;
 
 /// User-defined data attached to the socket instance.
-@property (nonatomic, strong, nullable) id userData;
+@property (atomic, strong, nullable) id userData;
 
 // MARK: - Init
 
 /// Create a new socket.
 - (instancetype)initWithDelegate:(nullable id<GCDAsyncSocketDelegate>)delegate
                    delegateQueue:(dispatch_queue_t)delegateQueue;
+
+/// Create a new socket with explicit socketQueue (pass NULL to use internal default queue).
+- (instancetype)initWithDelegate:(nullable id<GCDAsyncSocketDelegate>)delegate
+                   delegateQueue:(nullable dispatch_queue_t)delegateQueue
+                     socketQueue:(nullable dispatch_queue_t)socketQueue;
+
+/// Update delegate and callback queue (compatible with CocoaAsyncSocket API).
+- (void)setDelegate:(nullable id<GCDAsyncSocketDelegate>)delegate
+      delegateQueue:(nullable dispatch_queue_t)delegateQueue;
 
 // MARK: - Configuration
 
@@ -87,6 +108,9 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
           withTimeout:(NSTimeInterval)timeout
                 error:(NSError **)errPtr;
 
+/// Compatibility API for CocoaAsyncSocket server mode.
+- (BOOL)acceptOnPort:(uint16_t)port error:(NSError **)errPtr;
+
 // MARK: - Disconnect
 
 /// Disconnect the socket gracefully.
@@ -108,6 +132,12 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
 
 /// Enqueue a read that completes when the specified delimiter is found.
 - (void)readDataToData:(NSData *)data withTimeout:(NSTimeInterval)timeout tag:(long)tag;
+
+/// Enqueue a read to delimiter with a maximum length safeguard (0 means unlimited).
+- (void)readDataToData:(NSData *)data
+           withTimeout:(NSTimeInterval)timeout
+             maxLength:(NSUInteger)maxLength
+                   tag:(long)tag;
 
 // MARK: - Writing
 

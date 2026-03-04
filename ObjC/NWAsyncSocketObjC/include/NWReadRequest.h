@@ -29,6 +29,9 @@ typedef NS_ENUM(NSInteger, NWReadRequestType) {
 /// The delimiter to search for (for NWReadRequestTypeToDelimiter).
 @property (nonatomic, readonly, copy, nullable) NSData *delimiter;
 
+/// Maximum bytes allowed before delimiter is found (0 means unlimited).
+@property (nonatomic, readonly) NSUInteger maxLength;
+
 /// Timeout in seconds. Negative means no timeout.
 @property (nonatomic, readonly) NSTimeInterval timeout;
 
@@ -38,6 +41,10 @@ typedef NS_ENUM(NSInteger, NWReadRequestType) {
 + (instancetype)availableRequestWithTimeout:(NSTimeInterval)timeout tag:(long)tag;
 + (instancetype)toLengthRequest:(NSUInteger)length timeout:(NSTimeInterval)timeout tag:(long)tag;
 + (instancetype)toDelimiterRequest:(NSData *)delimiter timeout:(NSTimeInterval)timeout tag:(long)tag;
++ (instancetype)toDelimiterRequest:(NSData *)delimiter
+                           timeout:(NSTimeInterval)timeout
+                         maxLength:(NSUInteger)maxLength
+                               tag:(long)tag;
 
 @end
 
