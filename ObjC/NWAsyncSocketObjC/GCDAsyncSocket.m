@@ -352,7 +352,10 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
 
-        // Create a new GCDAsyncSocket for the accepted connection
+        // Create a new GCDAsyncSocket for the accepted connection.
+        // The new socket inherits the listener's delegate – this matches
+        // GCDAsyncSocket from CocoaAsyncSocket.  The user may reassign the
+        // delegate on newSocket inside socket:didAcceptNewSocket: if needed.
         GCDAsyncSocket *newSocket = [[GCDAsyncSocket alloc] initWithDelegate:strongSelf.delegate
                                                                delegateQueue:strongSelf.delegateQueue
                                                                  socketQueue:nil];
@@ -417,7 +420,9 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
     NSString *path = url.path;
     [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 
-    nw_endpoint_t localEndpoint = nw_endpoint_create_url(url.absoluteString.UTF8String);
+    // Construct a unix:// URL for the endpoint (Network.framework expects this scheme)
+    NSString *unixURLString = [NSString stringWithFormat:@"unix://%@", path];
+    nw_endpoint_t localEndpoint = nw_endpoint_create_url(unixURLString.UTF8String);
     nw_parameters_set_local_endpoint(parameters, localEndpoint);
 
     nw_listener_t listener = nw_listener_create(parameters);
@@ -465,6 +470,7 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
 
+        // See acceptOnInterface:port:error: for rationale on delegate sharing.
         GCDAsyncSocket *newSocket = [[GCDAsyncSocket alloc] initWithDelegate:strongSelf.delegate
                                                                delegateQueue:strongSelf.delegateQueue
                                                                  socketQueue:nil];
