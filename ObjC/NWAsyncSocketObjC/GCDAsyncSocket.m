@@ -45,7 +45,7 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 @property (nonatomic, strong) NWStreamBuffer *buffer;
 @property (nonatomic, strong) NSMutableArray<NWReadRequest *> *readQueue;
 @property (nonatomic, assign) BOOL isReadingContinuously;
-@property (nonatomic, assign) BOOL isListening;
+@property (atomic, assign) BOOL isListening;
 
 // SSE / streaming text mode
 @property (nonatomic, strong, nullable) NWSSEParser *sseParser;
@@ -750,10 +750,8 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
                     if (localHostStr) {
                         self.localHost = [NSString stringWithUTF8String:localHostStr];
                     }
-                    const char *localPortStr = nw_endpoint_get_port(localEndpoint);
-                    if (localPortStr) {
-                        self.localPort = (uint16_t)strtoul(localPortStr, NULL, 10);
-                    }
+                    uint16_t localPortValue = nw_endpoint_get_port(localEndpoint);
+                    self.localPort = localPortValue;
                 }
             }
 #endif
