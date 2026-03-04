@@ -4,6 +4,7 @@
 //
 
 #import "SocketManager.h"
+#import "NWSSEParser.h"
 
 NSNotificationName const SocketManagerDidUpdateNotification = @"SocketManagerDidUpdate";
 

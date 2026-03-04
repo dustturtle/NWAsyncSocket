@@ -5,6 +5,7 @@
 
 #import "SocketConnectionDemoViewController.h"
 #import "SocketManager.h"
+#import "NWSSEParser.h"
 
 typedef NS_ENUM(NSInteger, SocketSection) {
     SocketSectionSettings = 0,
