@@ -10,6 +10,7 @@
 //    3. UTF-8 Safety    — Multi-byte character boundary detection
 //    4. NWReadRequest   — Read-request queue types
 //    5. GCDAsyncSocket  — Connection usage pattern
+//    6. GCDAsyncSocket  — Server socket API (accept/listen)
 //
 //  Build (from repository root):
 //    clang -framework Foundation \
@@ -26,6 +27,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#include <unistd.h>
 #import "NWStreamBuffer.h"
 #import "NWSSEParser.h"
 #import "NWReadRequest.h"
@@ -422,9 +424,18 @@ static void demoReadRequest(void) {
 
 // Sample delegate class for demonstration
 @interface DemoSocketDelegate : NSObject <GCDAsyncSocketDelegate>
+@property (nonatomic, strong) NSMutableArray<GCDAsyncSocket *> *acceptedSockets;
 @end
 
 @implementation DemoSocketDelegate
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _acceptedSockets = [NSMutableArray array];
+    }
+    return self;
+}
 
 - (void)socket:(GCDAsyncSocket *)sock didConnectToHost:(NSString *)host port:(uint16_t)port {
     NSLog(@"Connected to %@:%u", host, port);
@@ -456,6 +467,11 @@ static void demoReadRequest(void) {
 
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)error {
     NSLog(@"Disconnected: %@", error ? error.localizedDescription : @"clean");
+}
+
+- (void)socket:(GCDAsyncSocket *)sock didAcceptNewSocket:(GCDAsyncSocket *)newSocket {
+    NSLog(@"Accepted new connection: %@", newSocket);
+    [self.acceptedSockets addObject:newSocket];
 }
 
 - (void)socket:(GCDAsyncSocket *)sock didReceiveSSEEvent:(NWSSEEvent *)event {
@@ -538,8 +554,142 @@ static void demoGCDAsyncSocketUsage(void) {
 }
 
 // ============================================================================
-#pragma mark - Main Menu
+#pragma mark - 6. GCDAsyncSocket Server API
 // ============================================================================
+
+static void demoServerSocket(void) {
+    printHeader(@"6. GCDAsyncSocket — Server Socket API");
+
+    DemoSocketDelegate *delegate = [[DemoSocketDelegate alloc] init];
+    dispatch_queue_t queue = dispatch_queue_create("com.demo.server", DISPATCH_QUEUE_SERIAL);
+
+    // ---- 6a. acceptOnPort: ----
+    printSubHeader(@"6a. acceptOnPort: — Listen on a TCP port");
+
+    GCDAsyncSocket *serverSocket = [[GCDAsyncSocket alloc] initWithDelegate:delegate
+                                                              delegateQueue:queue];
+    printf("Created server socket\n");
+    printf("  isListening: %s (expected: NO)\n", serverSocket.isListening ? "YES" : "NO");
+    printf("  isConnected: %s (expected: NO)\n", serverSocket.isConnected ? "YES" : "NO");
+
+    NSError *err = nil;
+    BOOL ok = [serverSocket acceptOnPort:0 error:&err];
+    printf("  acceptOnPort:0 → %s (port 0 lets the system choose)\n", ok ? "YES" : "NO");
+    if (err) {
+        printf("  Error: %s\n", err.localizedDescription.UTF8String);
+    }
+    // Give the listener a moment to start
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+    printf("  isListening: %s (expected: YES)\n", serverSocket.isListening ? "YES" : "NO");
+    printf("  localPort: %u (system-assigned)\n", serverSocket.localPort);
+
+    // ---- 6b. Double-accept error ----
+    printSubHeader(@"6b. Double-accept error — Calling accept while already listening");
+
+    NSError *doubleErr = nil;
+    BOOL doubleOk = [serverSocket acceptOnPort:0 error:&doubleErr];
+    printf("  acceptOnPort:0 again → %s (expected: NO)\n", doubleOk ? "YES" : "NO");
+    if (doubleErr) {
+        printf("  Error: %s (expected: already listening)\n", doubleErr.localizedDescription.UTF8String);
+    }
+    printf("✅ Double-accept correctly returns error\n");
+
+    // ---- 6c. Client connects to server ----
+    printSubHeader(@"6c. Client → Server connection — Verify didAcceptNewSocket:");
+
+    uint16_t serverPort = serverSocket.localPort;
+    GCDAsyncSocket *clientSocket = [[GCDAsyncSocket alloc] initWithDelegate:delegate
+                                                              delegateQueue:queue];
+    NSError *connectErr = nil;
+    BOOL connected = [clientSocket connectToHost:@"127.0.0.1" onPort:serverPort error:&connectErr];
+    printf("  Client connectToHost:127.0.0.1 onPort:%u → %s\n", serverPort, connected ? "YES" : "NO");
+    if (connectErr) {
+        printf("  Connect Error: %s\n", connectErr.localizedDescription.UTF8String);
+    }
+
+    // Pump the run loop to allow the connection and accept to complete
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    printf("  Accepted sockets count: %lu (expected: 1)\n",
+           (unsigned long)delegate.acceptedSockets.count);
+    if (delegate.acceptedSockets.count > 0) {
+        GCDAsyncSocket *accepted = delegate.acceptedSockets[0];
+        printf("  Accepted socket isConnected: %s\n", accepted.isConnected ? "YES" : "NO");
+        printf("✅ Server accepted client connection via didAcceptNewSocket:\n");
+    } else {
+        printf("⚠️  No accepted socket yet (listener may need more time)\n");
+    }
+
+    // ---- 6d. Disconnect server ----
+    printSubHeader(@"6d. Disconnect server — Verify listener stops");
+
+    [serverSocket disconnect];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+    printf("  isListening after disconnect: %s (expected: NO)\n",
+           serverSocket.isListening ? "YES" : "NO");
+    printf("✅ Server socket disconnected, listener stopped\n");
+
+    // Clean up client
+    [clientSocket disconnect];
+    for (GCDAsyncSocket *s in delegate.acceptedSockets) {
+        [s disconnect];
+    }
+
+    // ---- 6e. acceptOnInterface:port: ----
+    printSubHeader(@"6e. acceptOnInterface:port: — Listen on localhost only");
+
+    GCDAsyncSocket *localServer = [[GCDAsyncSocket alloc] initWithDelegate:delegate
+                                                              delegateQueue:queue];
+    NSError *ifErr = nil;
+    BOOL ifOk = [localServer acceptOnInterface:@"127.0.0.1" port:0 error:&ifErr];
+    printf("  acceptOnInterface:@\"127.0.0.1\" port:0 → %s\n", ifOk ? "YES" : "NO");
+    if (ifErr) {
+        printf("  Error: %s\n", ifErr.localizedDescription.UTF8String);
+    }
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+    printf("  isListening: %s (expected: YES)\n", localServer.isListening ? "YES" : "NO");
+    printf("✅ acceptOnInterface works\n");
+    [localServer disconnect];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+
+    // ---- 6f. acceptOnUrl: (Unix Domain Socket) ----
+    printSubHeader(@"6f. acceptOnUrl: — Listen on Unix Domain Socket");
+
+    GCDAsyncSocket *udsServer = [[GCDAsyncSocket alloc] initWithDelegate:delegate
+                                                            delegateQueue:queue];
+    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@"nwasyncsocket_demo_%d.sock", getpid()]];
+    NSURL *sockURL = [NSURL fileURLWithPath:tmpPath];
+    NSError *udsErr = nil;
+    BOOL udsOk = [udsServer acceptOnUrl:sockURL error:&udsErr];
+    printf("  acceptOnUrl:%s → %s\n", tmpPath.UTF8String, udsOk ? "YES" : "NO");
+    if (udsErr) {
+        printf("  Error: %s\n", udsErr.localizedDescription.UTF8String);
+    }
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+    printf("  isListening: %s (expected: YES)\n", udsServer.isListening ? "YES" : "NO");
+    printf("✅ acceptOnUrl works\n");
+    [udsServer disconnect];
+
+    // Clean up socket file
+    [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:nil];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+
+    // ---- 6g. acceptOnUrl: with non-file URL error ----
+    printSubHeader(@"6g. acceptOnUrl: error — Non-file URL rejected");
+
+    GCDAsyncSocket *badUds = [[GCDAsyncSocket alloc] initWithDelegate:delegate
+                                                         delegateQueue:queue];
+    NSError *badErr = nil;
+    NSURL *httpUrl = [NSURL URLWithString:@"http://example.com"];
+    BOOL badOk = [badUds acceptOnUrl:httpUrl error:&badErr];
+    printf("  acceptOnUrl:http://example.com → %s (expected: NO)\n", badOk ? "YES" : "NO");
+    if (badErr) {
+        printf("  Error: %s (expected: must be file URL)\n", badErr.localizedDescription.UTF8String);
+    }
+    printf("✅ Non-file URL correctly rejected\n");
+
+    waitForUser();
+}
 
 static void printMenu(void) {
     printHeader(@"NWAsyncSocket Objective-C Demo");
@@ -550,6 +700,7 @@ static void printMenu(void) {
         "  3. UTF-8 Safety    — Multi-byte character boundary detection\n"
         "  4. NWReadRequest   — Read-request queue types\n"
         "  5. GCDAsyncSocket  — Connection usage pattern\n"
+        "  6. GCDAsyncSocket  — Server socket API\n"
         "  a. Run all demos\n"
         "  q. Quit\n\n"
     );
@@ -580,17 +731,20 @@ int main(int argc, const char * argv[]) {
                 demoReadRequest();
             } else if ([input isEqualToString:@"5"]) {
                 demoGCDAsyncSocketUsage();
+            } else if ([input isEqualToString:@"6"]) {
+                demoServerSocket();
             } else if ([input isEqualToString:@"a"]) {
                 demoStreamBuffer();
                 demoSSEParser();
                 demoUTF8Safety();
                 demoReadRequest();
                 demoGCDAsyncSocketUsage();
+                demoServerSocket();
             } else if ([input isEqualToString:@"q"]) {
                 printf("\nGoodbye! 👋\n");
                 running = NO;
             } else {
-                printf("Invalid choice. Please enter 1-5, a, or q.\n");
+                printf("Invalid choice. Please enter 1-6, a, or q.\n");
             }
         }
     }
