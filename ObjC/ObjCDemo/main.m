@@ -27,6 +27,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#include <unistd.h>
 #import "NWStreamBuffer.h"
 #import "NWSSEParser.h"
 #import "NWReadRequest.h"
@@ -655,7 +656,8 @@ static void demoServerSocket(void) {
 
     GCDAsyncSocket *udsServer = [[GCDAsyncSocket alloc] initWithDelegate:delegate
                                                             delegateQueue:queue];
-    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"nwasyncsocket_demo.sock"];
+    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@"nwasyncsocket_demo_%d.sock", getpid()]];
     NSURL *sockURL = [NSURL fileURLWithPath:tmpPath];
     NSError *udsErr = nil;
     BOOL udsOk = [udsServer acceptOnUrl:sockURL error:&udsErr];
