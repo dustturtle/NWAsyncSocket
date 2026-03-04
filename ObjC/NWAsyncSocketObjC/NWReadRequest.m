@@ -9,6 +9,7 @@
 @property (nonatomic, readwrite) NWReadRequestType type;
 @property (nonatomic, readwrite) NSUInteger length;
 @property (nonatomic, readwrite, copy, nullable) NSData *delimiter;
+@property (nonatomic, readwrite) NSUInteger maxLength;
 @property (nonatomic, readwrite) NSTimeInterval timeout;
 @property (nonatomic, readwrite) long tag;
 @end
@@ -33,9 +34,17 @@
 }
 
 + (instancetype)toDelimiterRequest:(NSData *)delimiter timeout:(NSTimeInterval)timeout tag:(long)tag {
+    return [self toDelimiterRequest:delimiter timeout:timeout maxLength:0 tag:tag];
+}
+
++ (instancetype)toDelimiterRequest:(NSData *)delimiter
+                           timeout:(NSTimeInterval)timeout
+                         maxLength:(NSUInteger)maxLength
+                               tag:(long)tag {
     NWReadRequest *req = [[NWReadRequest alloc] init];
     req.type = NWReadRequestTypeToDelimiter;
     req.delimiter = delimiter;
+    req.maxLength = maxLength;
     req.timeout = timeout;
     req.tag = tag;
     return req;
