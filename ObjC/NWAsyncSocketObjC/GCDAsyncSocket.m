@@ -38,12 +38,14 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 
 #if NW_FRAMEWORK_AVAILABLE
 @property (nonatomic, assign) nw_connection_t connection;
+@property (nonatomic, assign, nullable) nw_listener_t listener;
 #endif
 
 @property (nonatomic, strong) dispatch_queue_t socketQueue;
 @property (nonatomic, strong) NWStreamBuffer *buffer;
 @property (nonatomic, strong) NSMutableArray<NWReadRequest *> *readQueue;
 @property (nonatomic, assign) BOOL isReadingContinuously;
+@property (nonatomic, assign) BOOL isListening;
 
 // SSE / streaming text mode
 @property (nonatomic, strong, nullable) NWSSEParser *sseParser;
@@ -222,7 +224,11 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 - (uint16_t)localPort {
     __block uint16_t port = 0;
     [self performSyncOnSocketQueue:^{
-        port = _isConnected ? _localPort : 0;
+        if (_isListening) {
+            port = _localPort;
+        } else {
+            port = _isConnected ? _localPort : 0;
+        }
     }];
     return port;
 }
@@ -237,6 +243,9 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 
 - (void)dealloc {
 #if NW_FRAMEWORK_AVAILABLE
+    if (_listener) {
+        nw_listener_cancel(_listener);
+    }
     if (_connection) {
         nw_connection_cancel(_connection);
     }
@@ -270,13 +279,224 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 }
 
 - (BOOL)acceptOnPort:(uint16_t)port error:(NSError **)errPtr {
-    (void)port;
+    return [self acceptOnInterface:nil port:port error:errPtr];
+}
+
+- (BOOL)acceptOnInterface:(NSString *)interface port:(uint16_t)port error:(NSError **)errPtr {
+#if NW_FRAMEWORK_AVAILABLE
+    if (self.isListening) {
+        if (errPtr) {
+            *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                          code:GCDAsyncSocketErrorAlreadyConnected
+                                      userInfo:@{NSLocalizedDescriptionKey: @"Socket is already listening."}];
+        }
+        return NO;
+    }
+
+    nw_parameters_t parameters = nw_parameters_create_secure_tcp(
+        NW_PARAMETERS_DISABLE_PROTOCOL,
+        NW_PARAMETERS_DEFAULT_CONFIGURATION
+    );
+
+    if (interface.length > 0) {
+        // Bind to a specific interface/address
+        NSString *portStr = [NSString stringWithFormat:@"%u", port];
+        nw_endpoint_t localEndpoint = nw_endpoint_create_host(interface.UTF8String, portStr.UTF8String);
+        nw_parameters_set_local_endpoint(parameters, localEndpoint);
+    }
+
+    nw_listener_t listener = nw_listener_create_with_port([NSString stringWithFormat:@"%u", port].UTF8String, parameters);
+    if (!listener) {
+        if (errPtr) {
+            *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                          code:GCDAsyncSocketErrorConnectionFailed
+                                      userInfo:@{NSLocalizedDescriptionKey: @"Failed to create listener."}];
+        }
+        return NO;
+    }
+
+    self.listener = listener;
+
+    __weak typeof(self) weakSelf = self;
+
+    nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t _Nullable error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        switch (state) {
+            case nw_listener_state_ready: {
+                strongSelf.isListening = YES;
+                uint16_t assignedPort = nw_listener_get_port(listener);
+                strongSelf.localPort = assignedPort;
+                break;
+            }
+            case nw_listener_state_failed: {
+                strongSelf.isListening = NO;
+                NSError *nsError = [strongSelf socketErrorWithCode:GCDAsyncSocketErrorConnectionFailed
+                                                       description:@"Listener failed."
+                                                           reason:@"NW listener entered failed state"
+                                                          nwError:error];
+                [strongSelf disconnectInternalWithError:nsError];
+                break;
+            }
+            case nw_listener_state_cancelled: {
+                strongSelf.isListening = NO;
+                break;
+            }
+            default:
+                break;
+        }
+    });
+
+    nw_listener_set_new_connection_handler(listener, ^(nw_connection_t newConnection) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        // Create a new GCDAsyncSocket for the accepted connection
+        GCDAsyncSocket *newSocket = [[GCDAsyncSocket alloc] initWithDelegate:strongSelf.delegate
+                                                               delegateQueue:strongSelf.delegateQueue
+                                                                 socketQueue:nil];
+        newSocket.connection = newConnection;
+
+        // State change handler for the accepted connection
+        nw_connection_set_state_changed_handler(newConnection, ^(nw_connection_state_t state, nw_error_t _Nullable error) {
+            [newSocket handleStateChange:state error:error];
+        });
+
+        nw_connection_set_queue(newConnection, newSocket.socketQueue);
+        nw_connection_start(newConnection);
+
+        dispatch_async(strongSelf.delegateQueue, ^{
+            id delegate = strongSelf.delegate;
+            if ([delegate respondsToSelector:@selector(socket:didAcceptNewSocket:)]) {
+                [delegate socket:strongSelf didAcceptNewSocket:newSocket];
+            }
+        });
+    });
+
+    nw_listener_set_queue(listener, self.socketQueue);
+    nw_listener_start(listener);
+
+    return YES;
+#else
     if (errPtr) {
         *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
-                                      code:GCDAsyncSocketErrorInvalidParameter
-                                  userInfo:@{NSLocalizedDescriptionKey: @"acceptOnPort:error: is not supported in NWAsyncSocketObjC."}];
+                                      code:GCDAsyncSocketErrorConnectionFailed
+                                  userInfo:@{NSLocalizedDescriptionKey: @"Network.framework is not available on this platform."}];
     }
     return NO;
+#endif
+}
+
+- (BOOL)acceptOnUrl:(NSURL *)url error:(NSError **)errPtr {
+#if NW_FRAMEWORK_AVAILABLE
+    if (self.isListening) {
+        if (errPtr) {
+            *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                          code:GCDAsyncSocketErrorAlreadyConnected
+                                      userInfo:@{NSLocalizedDescriptionKey: @"Socket is already listening."}];
+        }
+        return NO;
+    }
+
+    if (!url.isFileURL) {
+        if (errPtr) {
+            *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                          code:GCDAsyncSocketErrorInvalidParameter
+                                      userInfo:@{NSLocalizedDescriptionKey: @"URL must be a file URL for Unix Domain Socket."}];
+        }
+        return NO;
+    }
+
+    nw_parameters_t parameters = nw_parameters_create_secure_tcp(
+        NW_PARAMETERS_DISABLE_PROTOCOL,
+        NW_PARAMETERS_DEFAULT_CONFIGURATION
+    );
+
+    // Remove existing socket file if present
+    NSString *path = url.path;
+    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+
+    nw_endpoint_t localEndpoint = nw_endpoint_create_url(url.absoluteString.UTF8String);
+    nw_parameters_set_local_endpoint(parameters, localEndpoint);
+
+    nw_listener_t listener = nw_listener_create(parameters);
+    if (!listener) {
+        if (errPtr) {
+            *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                          code:GCDAsyncSocketErrorConnectionFailed
+                                      userInfo:@{NSLocalizedDescriptionKey: @"Failed to create Unix Domain Socket listener."}];
+        }
+        return NO;
+    }
+
+    self.listener = listener;
+
+    __weak typeof(self) weakSelf = self;
+
+    nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t _Nullable error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        switch (state) {
+            case nw_listener_state_ready: {
+                strongSelf.isListening = YES;
+                break;
+            }
+            case nw_listener_state_failed: {
+                strongSelf.isListening = NO;
+                NSError *nsError = [strongSelf socketErrorWithCode:GCDAsyncSocketErrorConnectionFailed
+                                                       description:@"Unix Domain Socket listener failed."
+                                                           reason:@"NW listener entered failed state"
+                                                          nwError:error];
+                [strongSelf disconnectInternalWithError:nsError];
+                break;
+            }
+            case nw_listener_state_cancelled: {
+                strongSelf.isListening = NO;
+                break;
+            }
+            default:
+                break;
+        }
+    });
+
+    nw_listener_set_new_connection_handler(listener, ^(nw_connection_t newConnection) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        GCDAsyncSocket *newSocket = [[GCDAsyncSocket alloc] initWithDelegate:strongSelf.delegate
+                                                               delegateQueue:strongSelf.delegateQueue
+                                                                 socketQueue:nil];
+        newSocket.connection = newConnection;
+
+        nw_connection_set_state_changed_handler(newConnection, ^(nw_connection_state_t state, nw_error_t _Nullable error) {
+            [newSocket handleStateChange:state error:error];
+        });
+
+        nw_connection_set_queue(newConnection, newSocket.socketQueue);
+        nw_connection_start(newConnection);
+
+        dispatch_async(strongSelf.delegateQueue, ^{
+            id delegate = strongSelf.delegate;
+            if ([delegate respondsToSelector:@selector(socket:didAcceptNewSocket:)]) {
+                [delegate socket:strongSelf didAcceptNewSocket:newSocket];
+            }
+        });
+    });
+
+    nw_listener_set_queue(listener, self.socketQueue);
+    nw_listener_start(listener);
+
+    return YES;
+#else
+    if (errPtr) {
+        *errPtr = [NSError errorWithDomain:GCDAsyncSocketErrorDomain
+                                      code:GCDAsyncSocketErrorConnectionFailed
+                                  userInfo:@{NSLocalizedDescriptionKey: @"Network.framework is not available on this platform."}];
+    }
+    return NO;
+#endif
 }
 
 - (BOOL)connectToHost:(NSString *)host
@@ -362,7 +582,18 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 - (void)disconnect {
     __weak typeof(self) weakSelf = self;
     dispatch_async(self.socketQueue, ^{
-        [weakSelf disconnectInternalWithError:nil];
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+#if NW_FRAMEWORK_AVAILABLE
+        // Stop listener if in server mode
+        if (strongSelf.listener) {
+            nw_listener_cancel(strongSelf.listener);
+            strongSelf.listener = nil;
+            strongSelf.isListening = NO;
+            strongSelf.localPort = 0;
+        }
+#endif
+        [strongSelf disconnectInternalWithError:nil];
     });
 }
 
@@ -720,9 +951,9 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 }
 
 - (void)disconnectInternalWithError:(NSError *)error {
-    if (!self.isConnected
+    if (!self.isConnected && !self.isListening
 #if NW_FRAMEWORK_AVAILABLE
-        && !self.connection
+        && !self.connection && !self.listener
 #endif
     ) {
         return;
@@ -732,6 +963,11 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
     self.isReadingContinuously = NO;
 
 #if NW_FRAMEWORK_AVAILABLE
+    if (self.listener) {
+        nw_listener_cancel(self.listener);
+        self.listener = nil;
+        self.isListening = NO;
+    }
     if (self.connection) {
         nw_connection_cancel(self.connection);
         self.connection = nil;
