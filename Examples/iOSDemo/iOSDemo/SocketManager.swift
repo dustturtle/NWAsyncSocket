@@ -33,6 +33,13 @@ final class SocketManager: NSObject, ObservableObject {
 
     private var socket: NWAsyncSocket?
     private var readTag: Int = 0
+    private var pendingManualDisconnect = false
+
+    private static func jyHeadData2013() -> Data {
+        var value: Int64 = 2013
+        let fullData = withUnsafeBytes(of: &value) { Data($0) }
+        return Data(fullData.prefix(6))
+    }
 
     // MARK: - Connection
 
@@ -65,8 +72,14 @@ final class SocketManager: NSObject, ObservableObject {
 
     /// Disconnect the current socket.
     func disconnect() {
-        socket?.disconnect()
-        socket = nil
+        guard let socket = socket else {
+            return
+        }
+        pendingManualDisconnect = true
+        isConnected = false
+        appendLog("⏹ Disconnect requested by client")
+        socket.disconnect()
+        self.socket = nil
     }
 
     /// Send a string as UTF-8 data.
@@ -123,7 +136,15 @@ extension SocketManager: NWAsyncSocketDelegate {
 
     func socket(_ sock: NWAsyncSocket, didConnectToHost host: String, port: UInt16) {
         isConnected = true
+        pendingManualDisconnect = false
         appendLog("✅ Connected to \(host):\(port)")
+
+        let handshake = Self.jyHeadData2013()
+        let handshakeTag = readTag
+        readTag += 1
+        sock.write(handshake, withTimeout: 30, tag: handshakeTag)
+        appendLog("🤝 Sent handshake (\(handshake.count) bytes, tag: \(handshakeTag))")
+
         // Start reading
         sock.readData(withTimeout: -1, tag: readTag)
         readTag += 1
@@ -145,9 +166,12 @@ extension SocketManager: NWAsyncSocketDelegate {
         isConnected = false
         if let error = error {
             appendLog("🔴 Disconnected: \(error.localizedDescription)")
+        } else if pendingManualDisconnect {
+            appendLog("🟠 Disconnected (client requested)")
         } else {
-            appendLog("🔴 Disconnected")
+            appendLog("🟡 Disconnected (peer closed connection)")
         }
+        pendingManualDisconnect = false
     }
 
     func socket(_ sock: NWAsyncSocket, didReceiveSSEEvent event: SSEEvent) {
