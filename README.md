@@ -4,7 +4,7 @@ A TCP socket networking library for iOS/macOS built on **Network.framework**, wi
 
 Available in **two versions**:
 - 🟠 **Swift version** — `Sources/NWAsyncSocket/`
-- 🔵 **Objective-C version** — `ObjC/NWAsyncSocketObjC/` (uses Network.framework's C API: `nw_connection_t`). Class is named **GCDAsyncSocket** for drop-in replacement of CocoaAsyncSocket.
+- 🔵 **Objective-C version** — `ObjC/NWAsyncSocketObjC/` (uses Network.framework's C API: `nw_connection_t`). Class is named **GCDAsyncSocket** for drop-in replacement of CocoaAsyncSocket(battle tested for most tcp socket use cases!).
 
 ## Features
 
