@@ -58,6 +58,12 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 
 @implementation GCDAsyncSocket
 
+@synthesize connectedHost = _connectedHost;
+@synthesize connectedPort = _connectedPort;
+@synthesize localHost = _localHost;
+@synthesize localPort = _localPort;
+@synthesize isConnected = _isConnected;
+
 + (NSData *)CRLFData {
     return [NSData dataWithBytes:"\x0D\x0A" length:2];
 }
@@ -201,10 +207,16 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
     }
 }
 
+- (void)setIsConnected:(BOOL)isConnected {
+    [self performSyncOnSocketQueue:^{
+        self->_isConnected = isConnected;
+    }];
+}
+
 - (BOOL)isConnected {
     __block BOOL connected = NO;
     [self performSyncOnSocketQueue:^{
-        connected = _isConnected;
+        connected = self->_isConnected;
     }];
     return connected;
 }
@@ -216,43 +228,67 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 - (BOOL)isSecure {
     __block BOOL secure = NO;
     [self performSyncOnSocketQueue:^{
-        secure = _isConnected && _tlsEnabled;
+        secure = self->_isConnected && self->_tlsEnabled;
     }];
     return secure;
+}
+
+- (void)setConnectedHost:(NSString *)connectedHost {
+    [self performSyncOnSocketQueue:^{
+        self->_connectedHost = [connectedHost copy];
+    }];
 }
 
 - (NSString *)connectedHost {
     __block NSString *host = nil;
     [self performSyncOnSocketQueue:^{
-        host = _isConnected ? [_connectedHost copy] : nil;
+        host = self->_isConnected ? [self->_connectedHost copy] : nil;
     }];
     return host;
+}
+
+- (void)setConnectedPort:(uint16_t)connectedPort {
+    [self performSyncOnSocketQueue:^{
+        self->_connectedPort = connectedPort;
+    }];
 }
 
 - (uint16_t)connectedPort {
     __block uint16_t port = 0;
     [self performSyncOnSocketQueue:^{
-        port = _isConnected ? _connectedPort : 0;
+        port = self->_isConnected ? self->_connectedPort : 0;
     }];
     return port;
+}
+
+- (void)setLocalPort:(uint16_t)localPort {
+    [self performSyncOnSocketQueue:^{
+        self->_localPort = localPort;
+    }];
 }
 
 - (uint16_t)localPort {
     __block uint16_t port = 0;
     [self performSyncOnSocketQueue:^{
-        if (_isListening) {
-            port = _localPort;
+        if (self->_isListening) {
+            port = self->_localPort;
         } else {
-            port = _isConnected ? _localPort : 0;
+            port = self->_isConnected ? self->_localPort : 0;
         }
     }];
     return port;
 }
 
+- (void)setLocalHost:(NSString *)localHost {
+    [self performSyncOnSocketQueue:^{
+        self->_localHost = [localHost copy];
+    }];
+}
+
 - (NSString *)localHost {
     __block NSString *host = nil;
     [self performSyncOnSocketQueue:^{
-        host = _isConnected ? [_localHost copy] : nil;
+        host = self->_isConnected ? [self->_localHost copy] : nil;
     }];
     return host;
 }
