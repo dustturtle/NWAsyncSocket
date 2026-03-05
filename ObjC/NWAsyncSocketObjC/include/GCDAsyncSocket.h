@@ -38,6 +38,11 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
 
 @interface GCDAsyncSocket : NSObject
 
++ (NSData *)CRLFData;
++ (NSData *)CRData;
++ (NSData *)LFData;
++ (NSData *)ZeroData;
+
 /// The delegate that receives socket events.
 @property (atomic, weak, nullable) id<GCDAsyncSocketDelegate> delegate;
 
