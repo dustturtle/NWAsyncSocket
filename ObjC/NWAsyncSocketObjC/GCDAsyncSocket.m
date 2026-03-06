@@ -180,6 +180,7 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
         _readQueue = [NSMutableArray array];
         _isReadingContinuously = NO;
         _tlsEnabled = NO;
+        _allowInsecureTLS = YES;
         _streamingTextEnabled = NO;
         _IPv4PreferredOverIPv6 = YES;
     }
@@ -580,10 +581,27 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
     // Create parameters
     nw_parameters_t parameters;
     if (self.tlsEnabled) {
-        parameters = nw_parameters_create_secure_tcp(
-            NW_PARAMETERS_DEFAULT_CONFIGURATION,
-            NW_PARAMETERS_DEFAULT_CONFIGURATION
-        );
+        if (self.allowInsecureTLS) {
+            dispatch_queue_t verifyQueue = self.socketQueue ?: dispatch_get_main_queue();
+            parameters = nw_parameters_create_secure_tcp(
+                ^(nw_protocol_options_t  _Nonnull tlsOptions) {
+                    sec_protocol_options_t secOptions = nw_tls_copy_sec_protocol_options(tlsOptions);
+                    sec_protocol_options_set_verify_block(secOptions, ^(sec_protocol_metadata_t  _Nonnull metadata,
+                                                                         sec_trust_t  _Nonnull trust,
+                                                                         sec_protocol_verify_complete_t  _Nonnull complete) {
+                        (void)metadata;
+                        (void)trust;
+                        complete(true);
+                    }, verifyQueue);
+                },
+                NW_PARAMETERS_DEFAULT_CONFIGURATION
+            );
+        } else {
+            parameters = nw_parameters_create_secure_tcp(
+                NW_PARAMETERS_DEFAULT_CONFIGURATION,
+                NW_PARAMETERS_DEFAULT_CONFIGURATION
+            );
+        }
     } else {
         parameters = nw_parameters_create_secure_tcp(
             NW_PARAMETERS_DISABLE_PROTOCOL,
