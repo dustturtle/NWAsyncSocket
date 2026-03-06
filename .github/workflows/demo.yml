@@ -32,7 +32,7 @@ jobs:
 
       - name: Build ObjC Demo
         run: |
-          clang -fobjc-arc -framework Foundation -framework Network \
+          clang -fobjc-arc -framework Foundation -framework Network -framework Security \
                 -I ObjC/NWAsyncSocketObjC/include \
                 ObjC/NWAsyncSocketObjC/NWStreamBuffer.m \
                 ObjC/NWAsyncSocketObjC/NWSSEParser.m \

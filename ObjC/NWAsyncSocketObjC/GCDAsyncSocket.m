@@ -54,6 +54,11 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 // TLS
 @property (nonatomic, assign) BOOL tlsEnabled;
 
+// Write queue tracking
+@property (nonatomic, assign) NSUInteger pendingWriteCount;
+@property (nonatomic, assign) BOOL flagDisconnectAfterWrites;
+@property (nonatomic, assign) BOOL flagDisconnectAfterReads;
+
 @end
 
 @implementation GCDAsyncSocket
@@ -674,11 +679,35 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 }
 
 - (void)disconnectAfterWriting {
-    [self disconnect];
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(self.socketQueue, ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        strongSelf.flagDisconnectAfterWrites = YES;
+        // If no writes are in flight, disconnect immediately.
+        // Otherwise the send-completion handler will disconnect
+        // once the last pending write finishes.
+        if (strongSelf.pendingWriteCount == 0) {
+            [strongSelf disconnectInternalWithError:nil];
+        }
+    });
 }
 
 - (void)disconnectAfterReading {
-    [self disconnect];
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(self.socketQueue, ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        strongSelf.flagDisconnectAfterReads = YES;
+        // If no read requests are pending, disconnect immediately.
+        // Otherwise the read-completion callback will disconnect
+        // once the last pending read request is fulfilled.
+        if (strongSelf.readQueue.count == 0) {
+            [strongSelf disconnectInternalWithError:nil];
+        }
+    });
 }
 
 #pragma mark - Reading
@@ -773,9 +802,15 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
                            strongSelf.socketQueue, timeoutBlock);
         }
 
+        strongSelf.pendingWriteCount++;
+
+        // is_complete must be false so the TCP stream stays open for
+        // subsequent writes (e.g. HTTP header followed by body).
+        // Passing true here would send a TCP FIN after each write,
+        // closing the write side of the connection prematurely.
         nw_connection_send(strongSelf.connection, dispatchData,
                            NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT,
-                           true, ^(nw_error_t _Nullable error) {
+                           false, ^(nw_error_t _Nullable error) {
             writeCompleted = YES;
             if (timeoutBlock) {
                 dispatch_block_cancel(timeoutBlock);
@@ -785,12 +820,16 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
             __strong typeof(weakSelf) sself = weakSelf;
             if (!sself) return;
 
+            // This completion handler fires on socketQueue (set via
+            // nw_connection_set_queue), so we can safely mutate state.
+            sself.pendingWriteCount--;
+
             if (error) {
                 NSError *nsError = [sself socketErrorWithCode:GCDAsyncSocketErrorConnectionFailed
                                                   description:@"Write failed."
                                                       reason:@"nw_connection_send failed"
                                                      nwError:error];
-                [sself disconnectWithError:nsError];
+                [sself disconnectInternalWithError:nsError];
             } else {
                 dispatch_async(sself.delegateQueue, ^{
                     id delegate = sself.delegate;
@@ -798,6 +837,11 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
                         [delegate socket:sself didWriteDataWithTag:tag];
                     }
                 });
+
+                // Check if we should disconnect after all writes complete
+                if (sself.flagDisconnectAfterWrites && sself.pendingWriteCount == 0) {
+                    [sself disconnectInternalWithError:nil];
+                }
             }
         });
     });
@@ -1013,6 +1057,11 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
             }
         }
     }
+
+    // Check if we should disconnect after all read requests are fulfilled
+    if (self.flagDisconnectAfterReads && self.readQueue.count == 0) {
+        [self disconnectInternalWithError:nil];
+    }
 }
 
 #pragma mark - Private: Disconnect
@@ -1035,6 +1084,9 @@ static NSString * const GCDAsyncSocketNWErrorCodeKey = @"GCDAsyncSocketNWErrorCo
 
     self.isConnected = NO;
     self.isReadingContinuously = NO;
+    self.flagDisconnectAfterWrites = NO;
+    self.flagDisconnectAfterReads = NO;
+    self.pendingWriteCount = 0;
 
 #if NW_FRAMEWORK_AVAILABLE
     if (self.listener) {
