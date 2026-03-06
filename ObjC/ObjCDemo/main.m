@@ -13,7 +13,7 @@
 //    6. GCDAsyncSocket  — Server socket API (accept/listen)
 //
 //  Build (from repository root):
-//    clang -framework Foundation \
+//    clang -framework Foundation -framework Network -framework Security \
 //          -I ObjC/NWAsyncSocketObjC/include \
 //          ObjC/NWAsyncSocketObjC/NWStreamBuffer.m \
 //          ObjC/NWAsyncSocketObjC/NWSSEParser.m \
