@@ -321,7 +321,7 @@ The demo menu lets you test each component individually or run all at once:
 Build the ObjC CLI demo on macOS:
 
 ```bash
-clang -framework Foundation \
+clang -fobjc-arc -framework Foundation -framework Network -framework Security \
       -I ObjC/NWAsyncSocketObjC/include \
       ObjC/NWAsyncSocketObjC/NWStreamBuffer.m \
       ObjC/NWAsyncSocketObjC/NWSSEParser.m \
