@@ -52,6 +52,10 @@ typedef NS_ENUM(NSInteger, GCDAsyncSocketError) {
 /// Whether to prefer IPv4 over IPv6 during hostname resolution. Default is YES.
 @property (atomic, assign) BOOL IPv4PreferredOverIPv6;
 
+/// Whether to allow self-signed/invalid certificates when TLS is enabled.
+/// Default is YES (skip validation). Set to NO to enable system certificate validation.
+@property (atomic, assign) BOOL allowInsecureTLS;
+
 /// Whether the socket is currently connected.
 @property (atomic, readonly) BOOL isConnected;
 
