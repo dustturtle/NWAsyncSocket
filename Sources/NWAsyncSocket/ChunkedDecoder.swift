@@ -101,8 +101,7 @@ public final class ChunkedDecoder {
                     break loop  // Need more data.
                 }
                 // Skip the trailing CRLF.
-                if buffer.count >= 2
-                    && buffer[buffer.startIndex] == 0x0D
+                if buffer[buffer.startIndex] == 0x0D
                     && buffer[buffer.index(after: buffer.startIndex)] == 0x0A {
                     buffer = Data(buffer.suffix(from: buffer.startIndex + 2))
                 }

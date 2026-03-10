@@ -26,7 +26,7 @@ public struct SSEEvent: Equatable, Sendable {
 /// **Performance**: Incoming data is accumulated as raw `Data` bytes.
 /// Line-ending detection (`\r\n`, `\r`, `\n`) is performed at the byte
 /// level, and `String` conversion is deferred until a complete event
-/// boundary (`\n\n`) is reached. This minimises ARC traffic and CPU
+/// boundary (`\n\n`) is reached. This minimizes ARC traffic and CPU
 /// usage on iOS compared to converting every incoming chunk to `String`.
 ///
 /// SSE specification reference: https://html.spec.whatwg.org/multipage/server-sent-events.html
