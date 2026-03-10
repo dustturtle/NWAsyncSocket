@@ -23,22 +23,45 @@ public struct SSEEvent: Equatable, Sendable {
 /// `SSEEvent` values. Handles partial lines that arrive split across
 /// multiple TCP segments.
 ///
+/// **Performance**: Incoming data is accumulated as raw `Data` bytes.
+/// Line-ending detection (`\r\n`, `\r`, `\n`) is performed at the byte
+/// level, and `String` conversion is deferred until a complete event
+/// boundary (`\n\n`) is reached. This minimises ARC traffic and CPU
+/// usage on iOS compared to converting every incoming chunk to `String`.
+///
 /// SSE specification reference: https://html.spec.whatwg.org/multipage/server-sent-events.html
 public final class SSEParser {
 
     // MARK: - Properties
 
     /// Accumulated raw bytes that have not yet formed a complete line.
-    private var lineBuffer: String = ""
+    /// Kept as `Data` to avoid repeated String allocations; conversion to
+    /// `String` is deferred until a complete event is dispatched.
+    private var lineBuffer = Data()
 
-    // Fields being built for the current event
+    // Fields being built for the current event (stored as raw bytes
+    // until the event boundary triggers String conversion).
     private var currentEvent: String = "message"
-    private var currentData: [String] = []
+    private var currentDataParts: [Data] = []
     private var currentId: String?
     private var currentRetry: Int?
 
-    /// Last seen event id (for reconnection).
+    /// Last seen event id (for reconnection with `Last-Event-ID`).
     public private(set) var lastEventId: String?
+
+    // MARK: - ASCII byte constants
+
+    private static let LF: UInt8    = 0x0A  // \n
+    private static let CR: UInt8    = 0x0D  // \r
+    private static let COLON: UInt8 = 0x3A  // :
+    private static let SPACE: UInt8 = 0x20  // ' '
+    private static let NUL: UInt8   = 0x00  // \0
+
+    // Pre-computed field name bytes for fast comparison.
+    private static let fieldEvent = Array("event".utf8)
+    private static let fieldData  = Array("data".utf8)
+    private static let fieldId    = Array("id".utf8)
+    private static let fieldRetry = Array("retry".utf8)
 
     // MARK: - Init
 
@@ -48,119 +71,143 @@ public final class SSEParser {
 
     /// Feed raw bytes into the parser. Returns an array of fully parsed events.
     /// Partial lines are buffered internally until a newline arrives.
+    ///
+    /// Data is accumulated in byte form; `String` conversion is deferred
+    /// until a complete event boundary (`\n\n`) is reached, reducing
+    /// CPU and ARC overhead on iOS.
     public func parse(_ data: Data) -> [SSEEvent] {
-        guard let text = String(data: data, encoding: .utf8) else { return [] }
-        return parse(text)
-    }
-
-    /// Feed a string chunk into the parser.
-    public func parse(_ text: String) -> [SSEEvent] {
+        guard !data.isEmpty else { return [] }
         var events: [SSEEvent] = []
-        lineBuffer.append(text)
+        lineBuffer.append(data)
 
-        // Process all complete lines (terminated by \r\n, \r, or \n).
-        while let (line, remainder) = extractLine(from: lineBuffer) {
-            lineBuffer = remainder
-            processLine(line, events: &events)
+        // Process all complete lines at the byte level.
+        var scanOffset = 0
+        while scanOffset < lineBuffer.count {
+            guard let (lineData, afterLineOffset) = extractLineBytes(from: scanOffset) else {
+                break
+            }
+            processLineBytes(lineData, events: &events)
+            scanOffset = afterLineOffset
+        }
+
+        // Remove consumed bytes.
+        if scanOffset > 0 {
+            if scanOffset >= lineBuffer.count {
+                lineBuffer = Data()
+            } else {
+                lineBuffer = Data(lineBuffer.suffix(from: lineBuffer.startIndex + scanOffset))
+            }
         }
 
         return events
     }
 
+    /// Feed a string chunk into the parser.
+    public func parse(_ text: String) -> [SSEEvent] {
+        guard let data = text.data(using: .utf8) else { return [] }
+        return parse(data)
+    }
+
     /// Reset all internal state.
     public func reset() {
-        lineBuffer = ""
+        lineBuffer = Data()
         resetCurrentEvent()
     }
 
-    // MARK: - Private
+    // MARK: - Private: Byte-level line extraction
 
-    /// Extract the first complete line from `buffer`.
-    /// Returns `(line, remainder)` or `nil` if no complete line exists.
-    ///
-    /// Uses `UnicodeScalarView` to correctly handle `\r\n` which Swift's
-    /// `Character` type treats as a single extended grapheme cluster.
-    private func extractLine(from buffer: String) -> (String, String)? {
-        let scalars = buffer.unicodeScalars
-        var idx = scalars.startIndex
-        while idx < scalars.endIndex {
-            let scalar = scalars[idx]
-            if scalar == "\r" {
-                let lineEnd = idx
-                let next = scalars.index(after: idx)
+    /// Extract the first complete line from `lineBuffer` starting at `offset`.
+    /// Scans for `\r\n`, `\r`, or `\n` terminators at the byte level.
+    /// Returns `(lineData, offsetAfterLineEnding)` or `nil` if no complete
+    /// line exists yet.
+    private func extractLineBytes(from offset: Int) -> (Data, Int)? {
+        let start = lineBuffer.startIndex + offset
+        var i = offset
+        while i < lineBuffer.count {
+            let byte = lineBuffer[lineBuffer.startIndex + i]
+            if byte == SSEParser.CR {
+                let lineData = Data(lineBuffer[start..<(lineBuffer.startIndex + i)])
                 // \r\n counts as a single line ending
-                if next < scalars.endIndex && scalars[next] == "\n" {
-                    let afterCRLF = scalars.index(after: next)
-                    return (String(scalars[scalars.startIndex..<lineEnd]),
-                            String(scalars[afterCRLF...]))
+                if i + 1 < lineBuffer.count && lineBuffer[lineBuffer.startIndex + i + 1] == SSEParser.LF {
+                    return (lineData, i + 2)
                 } else {
-                    return (String(scalars[scalars.startIndex..<lineEnd]),
-                            String(scalars[next...]))
+                    return (lineData, i + 1)
                 }
-            } else if scalar == "\n" {
-                let lineEnd = idx
-                let next = scalars.index(after: idx)
-                return (String(scalars[scalars.startIndex..<lineEnd]),
-                        String(scalars[next...]))
+            } else if byte == SSEParser.LF {
+                let lineData = Data(lineBuffer[start..<(lineBuffer.startIndex + i)])
+                return (lineData, i + 1)
             }
-            idx = scalars.index(after: idx)
+            i += 1
         }
         return nil
     }
 
-    /// Process a single complete line according to SSE rules.
-    private func processLine(_ line: String, events: inout [SSEEvent]) {
-        // Empty line = dispatch the event
-        if line.isEmpty {
+    /// Process a single complete line (as raw bytes) according to SSE rules.
+    /// String conversion is deferred; field names are compared as raw bytes.
+    private func processLineBytes(_ lineData: Data, events: inout [SSEEvent]) {
+        // Empty line = dispatch the event.
+        if lineData.isEmpty {
             dispatchEvent(into: &events)
             return
         }
 
         // Lines starting with ':' are comments – ignore.
-        if line.hasPrefix(":") {
+        if lineData[lineData.startIndex] == SSEParser.COLON {
             return
         }
 
-        // Split on first ':'
-        let field: String
-        let value: String
-        if let colonIdx = line.firstIndex(of: ":") {
-            field = String(line[line.startIndex..<colonIdx])
-            var valStart = line.index(after: colonIdx)
+        // Split on first ':' at the byte level.
+        let fieldBytes: Data
+        let valueBytes: Data
+        if let colonPos = lineData.firstIndex(of: SSEParser.COLON) {
+            fieldBytes = Data(lineData[lineData.startIndex..<colonPos])
+            var valStart = lineData.index(after: colonPos)
             // Skip a single leading space after the colon (per spec).
-            if valStart < line.endIndex && line[valStart] == " " {
-                valStart = line.index(after: valStart)
+            if valStart < lineData.endIndex && lineData[valStart] == SSEParser.SPACE {
+                valStart = lineData.index(after: valStart)
             }
-            value = String(line[valStart...])
+            valueBytes = Data(lineData[valStart..<lineData.endIndex])
         } else {
-            field = line
-            value = ""
+            fieldBytes = lineData
+            valueBytes = Data()
         }
 
-        switch field {
-        case "event":
-            currentEvent = value
-        case "data":
-            currentData.append(value)
-        case "id":
-            // Per spec, ignore if value contains null.
-            if !value.contains("\0") {
-                currentId = value
+        // Compare field names as raw bytes for performance.
+        if fieldBytes.elementsEqual(SSEParser.fieldEvent) {
+            currentEvent = String(data: valueBytes, encoding: .utf8) ?? "message"
+        } else if fieldBytes.elementsEqual(SSEParser.fieldData) {
+            currentDataParts.append(valueBytes)
+        } else if fieldBytes.elementsEqual(SSEParser.fieldId) {
+            // Per spec, ignore if value contains null byte.
+            if !valueBytes.contains(SSEParser.NUL) {
+                currentId = String(data: valueBytes, encoding: .utf8)
             }
-        case "retry":
-            if let ms = Int(value) {
+        } else if fieldBytes.elementsEqual(SSEParser.fieldRetry) {
+            if let str = String(data: valueBytes, encoding: .utf8), let ms = Int(str) {
                 currentRetry = ms
             }
-        default:
-            // Unknown field – ignore per spec.
-            break
         }
+        // Unknown field – ignore per spec.
     }
 
     private func dispatchEvent(into events: inout [SSEEvent]) {
         // Only dispatch if we have at least one data field.
-        if !currentData.isEmpty {
-            let dataStr = currentData.joined(separator: "\n")
+        if !currentDataParts.isEmpty {
+            // Join data parts with \n, performing a single String conversion.
+            let joinedData: Data
+            if currentDataParts.count == 1 {
+                joinedData = currentDataParts[0]
+            } else {
+                var combined = Data()
+                for (i, part) in currentDataParts.enumerated() {
+                    if i > 0 {
+                        combined.append(SSEParser.LF)
+                    }
+                    combined.append(part)
+                }
+                joinedData = combined
+            }
+            let dataStr = String(data: joinedData, encoding: .utf8) ?? ""
             let event = SSEEvent(
                 event: currentEvent,
                 data: dataStr,
@@ -168,7 +215,7 @@ public final class SSEParser {
                 retry: currentRetry
             )
             events.append(event)
-            // Update last event id
+            // Update last event id.
             if let id = currentId {
                 lastEventId = id
             }
@@ -178,7 +225,7 @@ public final class SSEParser {
 
     private func resetCurrentEvent() {
         currentEvent = "message"
-        currentData = []
+        currentDataParts = []
         currentId = nil
         currentRetry = nil
     }

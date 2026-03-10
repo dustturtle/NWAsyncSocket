@@ -30,6 +30,21 @@ public enum NWAsyncSocketError: Error, LocalizedError {
 /// - **SSE (Server-Sent Events) parsing** for LLM streaming data
 /// - **UTF-8 boundary detection** to prevent character corruption
 /// - **Read-request queue** for ordered, non-blocking reads
+/// - **HTTP chunked transfer-encoding decoding** for proxied SSE streams
+/// - **SSE auto-reconnect** with `Last-Event-ID` for seamless recovery
+///
+/// ## Thread safety
+///
+/// All socket I/O, buffer management and parsing run on a dedicated serial
+/// `socketQueue` (a background `DispatchQueue` with `.userInitiated` QoS).
+/// Delegate callbacks are dispatched to the caller-provided `delegateQueue`
+/// (typically `DispatchQueue.main`).  This ensures that:
+///
+/// 1. The UI thread is never blocked by network operations.
+/// 2. Parsing (SSE, chunked decoding) happens off the main thread,
+///    reducing CPU and power usage.
+/// 3. Delegate methods can safely update `@MainActor` / UI state when
+///    `delegateQueue` is `.main`.
 ///
 /// ## Quick Start
 /// ```swift
@@ -62,6 +77,8 @@ public final class NWAsyncSocket {
     // MARK: - Internal state
 
     private var connection: NWConnection?
+    /// Dedicated serial queue for all socket I/O and parsing.
+    /// Ensures thread-safe access to `buffer`, `readQueue`, `sseParser`, etc.
     private let socketQueue: DispatchQueue
     private let buffer = StreamBuffer()
     private var readQueue: [ReadRequest] = []
@@ -71,8 +88,18 @@ public final class NWAsyncSocket {
     private var sseParser: SSEParser?
     private var streamingTextEnabled = false
 
+    // HTTP chunked transfer-encoding decoder
+    private var chunkedDecoder: ChunkedDecoder?
+
     // TLS
     private var tlsEnabled = false
+
+    // SSE auto-reconnect
+    private var sseAutoReconnectEnabled = false
+    private var sseRetryInterval: TimeInterval = 3.0
+    private var lastConnectedHost: String?
+    private var lastConnectedPort: UInt16 = 0
+    private var reconnectWorkItem: DispatchWorkItem?
 
     // MARK: - Init
 
@@ -114,6 +141,37 @@ public final class NWAsyncSocket {
         }
     }
 
+    /// Enable HTTP chunked transfer-encoding decoding.
+    ///
+    /// When enabled, incoming data passes through a `ChunkedDecoder` before
+    /// reaching the SSE parser or streaming text layer. This is required when
+    /// the backend sits behind Nginx, a CDN, or any proxy that applies
+    /// `Transfer-Encoding: chunked` to the response.
+    public func enableChunkedDecoding() {
+        socketQueue.async { [weak self] in
+            self?.chunkedDecoder = ChunkedDecoder()
+        }
+    }
+
+    /// Enable automatic reconnection for SSE streams.
+    ///
+    /// When enabled, the socket will automatically attempt to reconnect after
+    /// an unexpected disconnection while SSE parsing is active. On reconnect
+    /// the delegate receives `socket(_:willAutoReconnectWithLastEventId:afterDelay:)`
+    /// so the application can include the `Last-Event-ID` HTTP header in the
+    /// new request, allowing the server to resume from the last seen event.
+    ///
+    /// - Parameter retryInterval: Default delay in seconds before a reconnect
+    ///   attempt. If the SSE stream sends a `retry:` field, that value takes
+    ///   precedence. Defaults to `3.0` seconds.
+    public func enableSSEAutoReconnect(retryInterval: TimeInterval = 3.0) {
+        socketQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.sseAutoReconnectEnabled = true
+            self.sseRetryInterval = retryInterval
+        }
+    }
+
     // MARK: - Connect
 
     /// Connect to the specified host and port.
@@ -149,6 +207,9 @@ public final class NWAsyncSocket {
         self.connection = conn
         self.connectedHost = host
         self.connectedPort = port
+        // Remember for auto-reconnect.
+        self.lastConnectedHost = host
+        self.lastConnectedPort = port
 
         conn.stateUpdateHandler = { [weak self] state in
             self?.handleStateChange(state)
@@ -171,6 +232,7 @@ public final class NWAsyncSocket {
     /// Disconnect the socket gracefully.
     public func disconnect() {
         socketQueue.async { [weak self] in
+            self?.cancelAutoReconnect()
             self?.disconnectInternal(error: nil)
         }
     }
@@ -180,6 +242,7 @@ public final class NWAsyncSocket {
         socketQueue.async { [weak self] in
             // For now, behave like disconnect. A more sophisticated implementation
             // could wait for the write queue to drain.
+            self?.cancelAutoReconnect()
             self?.disconnectInternal(error: nil)
         }
     }
@@ -187,6 +250,7 @@ public final class NWAsyncSocket {
     /// Disconnect after all pending reads have completed.
     public func disconnectAfterReading() {
         socketQueue.async { [weak self] in
+            self?.cancelAutoReconnect()
             self?.disconnectInternal(error: nil)
         }
     }
@@ -320,6 +384,9 @@ public final class NWAsyncSocket {
     /// This is the core of the streaming architecture – data is always being
     /// read from the connection and accumulated in the buffer, then dispatched
     /// to satisfy queued read requests.
+    ///
+    /// All processing runs on `socketQueue` (a background serial queue) to
+    /// keep the main / UI thread free.
     private func startContinuousRead() {
         guard !isReadingContinuously else { return }
         isReadingContinuously = true
@@ -333,33 +400,47 @@ public final class NWAsyncSocket {
                      maximumLength: 65536) { [weak self] content, _, isComplete, error in
             guard let self = self else { return }
 
-            if let data = content, !data.isEmpty {
-                self.buffer.append(data)
-
-                // SSE parsing mode
-                if let parser = self.sseParser {
-                    let events = parser.parse(data)
-                    for event in events {
-                        self.delegateQueue.async {
-                            self.delegate?.socket(self, didReceiveSSEEvent: event)
-                        }
-                    }
+            if let rawData = content, !rawData.isEmpty {
+                // De-chunk if HTTP chunked encoding is active.
+                let data: Data
+                if let decoder = self.chunkedDecoder {
+                    data = decoder.decode(rawData)
+                } else {
+                    data = rawData
                 }
 
-                // Streaming text mode: extract UTF-8 safe string from the
-                // newly received data without consuming the buffer, so
-                // queued reads can still access the raw bytes.
-                if self.streamingTextEnabled {
-                    let safeCount = StreamBuffer.utf8SafeByteCount(data)
-                    if safeCount > 0, let str = String(data: data.prefix(safeCount), encoding: .utf8) {
-                        self.delegateQueue.async {
-                            self.delegate?.socket(self, didReceiveString: str)
+                if !data.isEmpty {
+                    self.buffer.append(data)
+
+                    // SSE parsing mode
+                    if let parser = self.sseParser {
+                        let events = parser.parse(data)
+                        for event in events {
+                            // Update retry interval if the server sent one.
+                            if let retry = event.retry {
+                                self.sseRetryInterval = TimeInterval(retry) / 1000.0
+                            }
+                            self.delegateQueue.async {
+                                self.delegate?.socket(self, didReceiveSSEEvent: event)
+                            }
                         }
                     }
-                }
 
-                // Try to satisfy queued read requests
-                self.processReadQueue()
+                    // Streaming text mode: extract UTF-8 safe string from the
+                    // newly received data without consuming the buffer, so
+                    // queued reads can still access the raw bytes.
+                    if self.streamingTextEnabled {
+                        let safeCount = StreamBuffer.utf8SafeByteCount(data)
+                        if safeCount > 0, let str = String(data: data.prefix(safeCount), encoding: .utf8) {
+                            self.delegateQueue.async {
+                                self.delegate?.socket(self, didReceiveString: str)
+                            }
+                        }
+                    }
+
+                    // Try to satisfy queued read requests
+                    self.processReadQueue()
+                }
             }
 
             if isComplete {
@@ -432,6 +513,44 @@ public final class NWAsyncSocket {
         }
     }
 
+    // MARK: - Private: Auto-reconnect
+
+    private func scheduleAutoReconnect() {
+        guard sseAutoReconnectEnabled,
+              sseParser != nil,
+              let host = lastConnectedHost else { return }
+        let port = lastConnectedPort
+        let lastId = sseParser?.lastEventId
+        let delay = sseRetryInterval
+
+        // Notify delegate about the upcoming reconnection.
+        delegateQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.delegate?.socket(self, willAutoReconnectWithLastEventId: lastId, afterDelay: delay)
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            // Reset transient state but keep the parser (preserves lastEventId).
+            self.chunkedDecoder?.reset()
+            do {
+                try self.connect(toHost: host, onPort: port)
+            } catch {
+                self.delegateQueue.async {
+                    self.delegate?.socketDidDisconnect(self, withError: error)
+                }
+            }
+        }
+        reconnectWorkItem = workItem
+        socketQueue.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func cancelAutoReconnect() {
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        sseAutoReconnectEnabled = false
+    }
+
     // MARK: - Private: Disconnect
 
     private func disconnect(withError error: Error?) {
@@ -443,6 +562,8 @@ public final class NWAsyncSocket {
     private func disconnectInternal(error: Error?) {
         guard isConnected || connection != nil else { return }
 
+        let shouldAutoReconnect = sseAutoReconnectEnabled && sseParser != nil && error != nil
+
         isConnected = false
         isReadingContinuously = false
         connection?.cancel()
@@ -451,11 +572,17 @@ public final class NWAsyncSocket {
         connectedPort = 0
         readQueue.removeAll()
         buffer.reset()
-        sseParser?.reset()
+        // Note: sseParser is intentionally NOT reset here so that
+        // lastEventId survives across reconnections.
 
-        delegateQueue.async { [weak self] in
-            guard let self = self else { return }
-            self.delegate?.socketDidDisconnect(self, withError: error)
+        if shouldAutoReconnect {
+            scheduleAutoReconnect()
+        } else {
+            sseParser?.reset()
+            delegateQueue.async { [weak self] in
+                guard let self = self else { return }
+                self.delegate?.socketDidDisconnect(self, withError: error)
+            }
         }
     }
 }
