@@ -3,7 +3,9 @@ import Foundation
 
 /// Delegate protocol for `NWAsyncSocket`, modeled after `GCDAsyncSocketDelegate`.
 ///
-/// All delegate methods are called on the queue specified during initialization.
+/// All delegate methods are called on the queue specified during initialization
+/// (the `delegateQueue`), ensuring that UI updates happen on the main thread
+/// when `.main` is used as the delegate queue.
 public protocol NWAsyncSocketDelegate: AnyObject {
 
     /// Called when the socket successfully connects to the remote host.
@@ -29,6 +31,23 @@ public protocol NWAsyncSocketDelegate: AnyObject {
     /// Called when a UTF-8 safe string chunk has been extracted from the stream.
     /// Only invoked when streaming text mode is enabled via `enableStreamingText()`.
     func socket(_ sock: NWAsyncSocket, didReceiveString string: String)
+
+    // MARK: - Optional reconnection callbacks
+
+    /// Called when the socket is about to auto-reconnect after an SSE
+    /// disconnection.  The `lastEventId` (if available) should be included
+    /// in the subsequent HTTP request's `Last-Event-ID` header so the
+    /// server can resume from where the client left off.
+    ///
+    /// Only invoked when SSE auto-reconnect is enabled via
+    /// `enableSSEAutoReconnect(retryInterval:)`.
+    ///
+    /// - Parameters:
+    ///   - sock: The socket instance.
+    ///   - lastEventId: The most recent `id` field received before the
+    ///     disconnect, or `nil` if no id was seen.
+    ///   - retryInterval: Seconds until the reconnection attempt.
+    func socket(_ sock: NWAsyncSocket, willAutoReconnectWithLastEventId lastEventId: String?, afterDelay retryInterval: TimeInterval)
 }
 
 // MARK: - Default implementations (optional methods)
@@ -36,6 +55,7 @@ public protocol NWAsyncSocketDelegate: AnyObject {
 public extension NWAsyncSocketDelegate {
     func socket(_ sock: NWAsyncSocket, didReceiveSSEEvent event: SSEEvent) {}
     func socket(_ sock: NWAsyncSocket, didReceiveString string: String) {}
+    func socket(_ sock: NWAsyncSocket, willAutoReconnectWithLastEventId lastEventId: String?, afterDelay retryInterval: TimeInterval) {}
 }
 
 #endif // canImport(Network)
